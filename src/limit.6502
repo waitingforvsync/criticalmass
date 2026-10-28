@@ -1,0 +1,23 @@
+\\ limit.6502 - the limit's line across the well (D21: layout.py's), drawn by new_screen once it's
+\\ cleared the well, before each game, the first too. Apart from background.6502, to fit the gaps the code
+\\ has left.
+
+LimitAddr = WellAddr + (GenLimitLine DIV 8) * RowBytes + (GenLimitLine AND 7)
+
+\\ Draw the limit's line across the well.
+\\
+\\ Inputs:
+\\     none
+\\
+\\ Outputs:
+\\     A, X: corrupted
+
+.draw_limit
+{
+	LDX #0
+.col
+	LDA #GenLimitByte:STA LimitAddr,X
+	TXA:CLC:ADC #8:TAX					; the next byte column: 32 of them, to X's wrap
+	BNE col
+	RTS
+}

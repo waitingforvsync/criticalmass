@@ -15,13 +15,19 @@ import subprocess
 
 import numpy as np
 
+import layout
 from colours import Palette
-from layout import background		# (the tools import it from here)
 from game import DropperSpeed, DropSizes, Game, KeyDrop, KeyLeft, KeyRight, KeySlow
 from mode2 import Columns, Lines, PhysicalRGB, Screen, byte_pixels
 from physics import Floor, One, Params, Rim, WellLeft, WellRight
 from shapes import draw_radius, physics_radius
 from tables import pair_r
+
+
+def background(screen):
+	"""The screen a game starts on (the tools import it from here): screen.png's, and the limit's line."""
+	layout.background(screen)
+	layout.draw_limit(screen)
 
 # Rough NMOS cycle costs, to be replaced by measured ones once the 6502 exists
 Cost = {

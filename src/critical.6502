@@ -39,6 +39,7 @@ SECTION Mass, org = EntryOrg - (payload_end - payload_image), load = &FFFF0000+p
 		INCLUDE "physics.6502"
 		INCLUDE "game.6502"
 		INCLUDE "sparkthrow.6502"
+		INCLUDE "limit.6502"				; (background.6502's, above &D00 to fit)
 		INCLUDE "balls.6502"			; (the workspace's balls, and constants: no code)
 	.code_end
 		PADTO GenBakedOrg

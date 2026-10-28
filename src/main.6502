@@ -28,6 +28,7 @@ ZA_AUTO1 frame							; the vsync count the last frame started at
 	LDA &FE45:ORA #1:STA Seed+1			; (never 0)
 	LDA #0:STA Best:STA Best+1:STA Best+2
 	JSR sound_init
+	JSR new_screen						; (the limit's line: the well's clear already)
 	JSR new_game
 	LDA vsyncs:STA frame
 .loop

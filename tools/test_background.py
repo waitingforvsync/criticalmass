@@ -8,7 +8,8 @@ GAME OVER) the same.
 import sys
 
 from font import draw_text
-from layout import OverBox, OverBoxCol, OverCol, OverLine, background, black_box
+from layout import (FloorLine, OverBox, OverBoxCol, OverCol, OverLine, WallRightCol, WellCol, background,
+					black_box, draw_limit)
 from machine import Machine
 from mode2 import ScreenBase, ScreenSize, Screen
 
@@ -28,7 +29,8 @@ def main():
 	compare(m, want, "the loader's screen")
 	print(f"the loader's screen matches the model byte for byte ({m.load_cycles} cycles to load)")
 
-	# GAME OVER's box, then a new game's screen: back to the start's, the well cleared (scribble on it first)
+	# GAME OVER's box, then a new game's screen: back to the start's, the well cleared, and the limit's line
+	# (scribble on all of the well first)
 	m.call("draw_game_over")
 	over = Screen()
 	background(over)
@@ -36,10 +38,11 @@ def main():
 	draw_text(over, "GAME OVER", OverCol, OverLine)
 	compare(m, over, "GAME OVER")
 	mem = m.mpu.memory
-	for col in range(3, 35):
-		for line in range(0, 216, 7):
+	for col in range(WellCol, WallRightCol):			# the whole well, the limit's line too
+		for line in range(FloorLine):
 			mem[ScreenBase + (line >> 3) * 512 + col * 8 + (line & 7)] = 0xFF
 	m.call("new_screen")
+	draw_limit(want)								# the game's own, on screen.png's
 	compare(m, want, "a new game's screen")
 	print("GAME OVER's box, and a new game's screen, match too")
 

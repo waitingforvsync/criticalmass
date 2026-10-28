@@ -32,6 +32,8 @@ FloorRow = 27
 FloorLine = FloorRow * 8				# the well's bottom: the floor's first line
 FloorLines = 2							# the floor: two lines white, then two black, then the checker
 RimLine = 32							# a ball poking above this, touching another, is failing
+LimitLine = RimLine						# the limit's line across the well (D21): drawn by the game, not in screen.png;
+										# under the held ball (its lowest line is 31)
 
 assert WellAddr % 512 == 0, "the well's rows each start a page, an even one"
 
@@ -44,6 +46,7 @@ WallLeft = pixel_byte(0, White)
 WallRight = pixel_byte(White, 0)
 RimMark = pixel_byte(White, White)
 FloorByte = pixel_byte(White, White)
+LimitByte = pixel_byte(Blue, 0)				# dotted: the left pixel of each byte (the checker's blue on even lines)
 
 # The panel: the logo (48 x 32 pixels) at the top with a block of checker round it, then black boxes on the
 # checker's blocks, (top row, rows), all from BoxCol for BoxCols
@@ -119,6 +122,12 @@ def compose(screen):
 	draw_label(screen, "NEXT", BoxMiddle, NextLabel)
 	draw_label(screen, "SCORE", BoxMiddle, ScoreLabel)
 	draw_label(screen, "BEST", BoxMiddle, BestLabel)
+
+
+def draw_limit(screen):
+	"""The limit's line across the well, as new_screen draws it (limit.6502)."""
+	for col in range(WellCol, WallRightCol):
+		screen.put(col, LimitLine, LimitByte)
 
 
 def background(screen):

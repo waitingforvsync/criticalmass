@@ -560,3 +560,17 @@ looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
   spreads about 3.5 radii before it goes, as the original's does (3.6). No more code (the position's
   shift is two places now, inline, and the speed's / 8 is inline too): the gap before &D00 has 4 bytes.
   `make test` passes.
+
+## 2026-10-28: the limit's line (D21, P22)
+
+- A blue line across the well at the limit, line 32: under the held ball (which reaches line 31) and level
+  with the bottom of the wall ticks.
+- First two lines (32-33) in `assets/screen.png`, read back by gendata. Rich found it double height and
+  asked whether it needed to be in the PNG at all: now one line, drawn by the game (`layout.py`'s
+  constants, `limit.6502`'s `draw_limit`, called by `new_screen`, which `main` now calls before the first
+  game too). The PNG is back to Rich's; gendata asserts its well is clear.
+- A ball crossing it shows black where they overlap (EOR); seen in jsbeeb, the line is whole again once
+  the ball's past.
+- Room: 1 byte before &D00, 17 after the code above it, 10 in `main`'s gap before IRQ1V and 15 before the
+  plotter. `make test` passes.
+- Then dotted (Rich asked to see it): `LimitByte` &20, each byte's left pixel blue. No code change.

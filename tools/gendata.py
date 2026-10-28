@@ -442,6 +442,12 @@ def main():
 	lines.append(f"GenTitleChars = {screenpng.TitleWidth // 2}:GenTitleRows = {screenpng.TitleLines // 8}")
 	lines.append(f"GenTitlePalette = {lst([(l << 4) | ((l & 7) ^ 7) for l in range(16)])}\t; logical = physical")
 
+	# the well is clear in screen.png (the balls are EORed there); the limit's line across it is the game's
+	# to draw (layout.py, limit.6502)
+	assert not any(scr.get(col, line) for line in range(layout.FloorLine)
+				   for col in range(layout.WellCol, layout.WallRightCol)), "screen.png's well is clear"
+	lines.append(f"GenLimitLine = {layout.LimitLine}:GenLimitByte = {layout.LimitByte}\t; the limit's line (layout.py)")
+
 	# --- place the tables: MASS's under the screen, the loader's at the top of memory ---
 
 	baked = [t for t in tables if not any(p.made for p in t.parts)]

@@ -131,6 +131,14 @@ Rich: "please change the text "NEXT", "SCORE", "BEST" to a different font. We do
 the pico-8. Something centred and more stylised is fine, now that we don't rely on drawing it ourselves".
 The font is P19.
 
+### D21. The limit at the top of the well is a blue line (2026-10-28)
+Rich: "please amend the screen png so that the limit at the top of the playfield is a visible blue line".
+Then, seeing it two lines thick: "do we need it in the png at all?" and "i only want a single pixel line".
+So it's one line, drawn by the game, not in the PNG. The details are P22.
+
+### D22. Sparks when balls merge (2026-10-28)
+Rich, on P21 made faster and shorter: "This looks great". He committed it (a5c2b34) and it's released.
+
 ### D15. Releases go to the site's staging folder (2026-10-28)
 Rich: "publish the disk image to ~/dev/waitingforvsync.github.io/beeb/ in the same way that teddyboy does, as
 part of the release workflow".
@@ -371,7 +379,7 @@ Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (
   9.2K for 7, 16.5K for 10). 8 bytes.
 - The merge into critical mass doesn't flash: it's white already.
 
-### P21. A merge throws a ring of sparks (2026-10-28, to try: Rich asked for a particle effect)
+### P21. A merge throws a ring of sparks (2026-10-28, for D22)
 - After the original's particles, simpler: the original throws 3 × the new radius of them, each with a
   random drift and life. Here each merge throws 8, one every 45 degrees, from the new ball's edge.
   - They move at r / 2 units a frame along an axis, 3/4 of that on the diagonals (r / 4 at first; Rich
@@ -391,6 +399,21 @@ Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (
   the loader. A ring takes the free slots, so a third ring at once is cut short.
 - **Code:** 184 bytes in `sparks.6502`, before &D00 (that gap now has 1 byte left), and `sparkthrow.6502`
   after `game.6502`. Plus 24 bytes of direction tables. About 60 bytes of code room are left in all.
+
+### P22. The limit's line (2026-10-28, for D21)
+- Dotted blue across the well's 32 byte columns on line 32 (`layout.py`'s `LimitLine` and `LimitByte`:
+  &20, each byte's left pixel, as the checker's blue on even lines; Rich asked to see it dotted, after
+  solid, &30): level with the bottom of the white ticks on the walls (31-32), and just under the held
+  ball, whose lowest line is 31, so they never overlap.
+- The game draws it: `new_screen` clears the well, then `draw_limit` (`limit.6502`, above &D00 to fit)
+  draws the line, and `main` calls `new_screen` before the first game too. `screen.png`'s well stays clear;
+  `gendata.py` asserts it.
+- The model's `background` (what the tools start a game on) is `screen.png`'s plus the line.
+- It's inside the well, where the balls are EORed, so a ball crossing it shows black there (any ball
+  colour EOR blue is an even code). The sparks show their own colour over it.
+- `test_background.py` now scribbles over the whole well before `new_screen`.
+- First tried as two lines (32-33) in `screen.png`, read back by gendata: Rich wanted one, and none in
+  the PNG.
 
 ---
 

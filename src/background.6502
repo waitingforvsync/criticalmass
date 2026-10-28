@@ -29,6 +29,7 @@ NextBallRows = GenNextBoxRows - 2
 	INC ptr+1:INC ptr+1
 	DEX:BNE row
 	ASSERT WellColumns * 8 == 256 AND RowBytes == 512, "a row of the well is 256 bytes, of a row's 512"
+	JSR draw_limit						; the limit's line (limit.6502)
 
 	LDA #NextBallRow:LDX #NextBallRows:LDY #GenBoxCol - WellCol
 	ASSERT P% == fill_box, "new_screen falls through into fill_box"
