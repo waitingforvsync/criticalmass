@@ -479,3 +479,18 @@ looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
 - **The labels (D20)** are in a font of their own, now that they're only in the PNG: 4 × 5, white over cyan,
   with a blue shadow (P19), centred in their boxes. The score's digits are centred too.
 - The log now keeps Rich's calls (D16-D20) apart from Claude's details (P16-P19), as CLAUDE.md asks.
+
+## 2026-10-28: the smallest ball no longer wraps off the left wall
+
+- **The bug (Rich):** pressing Z with a size-1 ball held, at the left wall, sent it to the right wall.
+  - Since x counts from the well's left (D18), the smallest ball's left limit (1,408 in 8.8) is less than
+    a full-speed move (1,966). The move borrowed, wrapped to about 65,000, passed the low test, and was
+    clamped to the right limit. Every other size's limit is at least 2,048, so only size 1 did it.
+  - The model's integers don't wrap, so it was right all along. Lockstep missed it because the bot slows
+    as it nears its target and never pushes into a wall.
+- **The fix:** `do_keys` clears DropperX's high byte when the move left borrows. That leaves it under every
+  left limit (each over One), and `clamp_dropper` puts it at the limit. 7 bytes: 211 free before the
+  baked tables.
+- **A new lockstep scene,** `--scene walls` (seed 7, whose first ball is size 1): each held ball pushed at
+  full speed into one wall, then the other, and dropped there. It failed at frame 8 before the fix. It's in
+  `make test`, which passes.

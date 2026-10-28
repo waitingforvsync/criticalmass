@@ -115,6 +115,8 @@ ENDSECTION
 	LDA FrameKeys:AND #KeyLeft:BEQ notleft
 	STX t:SEC:LDA DropperX:SBC t:STA DropperX
 	STY t:LDA DropperX+1:SBC t:STA DropperX+1
+	BCS notleft							; past the well's left edge (the smallest ball's limit is under
+	LDA #0:STA DropperX+1				; a move): under every left limit, each over One, so clamped
 .notleft
 	LDA FrameKeys:AND #KeyRight:BEQ notright
 	STX t:CLC:LDA DropperX:ADC t:STA DropperX

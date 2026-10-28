@@ -62,6 +62,20 @@ def scene_critical(g, m):
 	m.poke(m["NumBalls"], len(balls))
 
 
+def walls_keys(frame):
+	"""The walls scene's keys: each held ball pushed at full speed into one wall, then the other, and dropped
+	there, the walls taking turns. The dropper is clamped at every size (the smallest's left limit is less
+	than a frame's move)."""
+	from game import KeyDrop, KeyLeft, KeyRight
+	t, n = frame % 50, frame // 50
+	first, second = (KeyLeft, KeyRight) if n % 2 == 0 else (KeyRight, KeyLeft)
+	if t < 24:
+		return first
+	if t < 48:
+		return second
+	return KeyDrop if t == 48 else 0
+
+
 def inject(m, g, size, x, y, vx=0):
 	"""A ball into both: the 6502's through its own alloc and add_ball."""
 	from physics import Ball
@@ -83,7 +97,8 @@ def main():
 	ap.add_argument("--seed", type=int, default=2)
 	ap.add_argument("--scene", default="",
 					help="critical: a pile and two size-9 balls, no keys; explosions: a pile, two size-9 balls "
-						 "every 60 frames, and the bot (after the review's harness)")
+						 "every 60 frames, and the bot (after the review's harness); walls: each held ball pushed "
+						 "into both walls at full speed and dropped there")
 	args = ap.parse_args()
 	g = Game(seed=args.seed, params=Params())
 	bot = Bot(g, args.seed + 1000)
@@ -119,7 +134,12 @@ def main():
 			from shapes import CriticalSize
 			inject(m, g, CriticalSize - 1, round((WellLeft + 32) * One), round(40 * One))
 			inject(m, g, CriticalSize - 1, round((WellLeft + 96) * One), round(40 * One), vx=-One // 2)
-		keys = 0 if args.scene == "critical" else bot.decide()
+		if args.scene == "critical":
+			keys = 0
+		elif args.scene == "walls":
+			keys = walls_keys(frame)
+		else:
+			keys = bot.decide()
 		via = via_rnd.randrange(256)		# the system VIA's T1 low byte, as the drop reads it
 		m.poke(0xFE44, via)
 		g.keys(keys, via)
