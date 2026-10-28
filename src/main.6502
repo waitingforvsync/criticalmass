@@ -13,17 +13,14 @@ ZA_AUTO1 frame							; the vsync count the last frame started at
 
 .main
 {
-	\\ the screen: cleared (the loader with it), the background drawn; then at a vsync the palette, and
-	\\ the display on
+	\\ the screen's drawn (the loader unpacked it): at a vsync the palette, and the display on
 
-	JSR clear_screen
-	JSR draw_background
 	LDA vsyncs
 .waitvsync
 	CMP vsyncs:BEQ waitvsync
 	LDX #15
 .palloop
-	LDA palette,X:STA &FE21				; video ULA: palette
+	LDA Palette,X:STA &FE21				; video ULA: palette
 	DEX:BPL palloop
 	LDA #8:STA &FE00:LDA #&C0:STA &FE01	; CRTC R8: the display on, no cursor
 
@@ -65,32 +62,8 @@ ZA_AUTO1 frame							; the vsync count the last frame started at
 	LDA Score+1:STA Best+1
 	LDA Score+2:STA Best+2
 .notbest
-	JSR clear_screen
-	JSR draw_background
+	JSR new_screen
 	JSR new_game
 	LDA #0:STA Released					; RETURN's still down: it mustn't drop the new game's first ball
 	JMP loop
-}
-
-.palette
-	EQUB GenPalette						; logical in the top nybble, physical EOR 7 in the bottom
-
-\\ Clear the screen.
-\\
-\\ Outputs:
-\\     A, X, Y: corrupted
-
-.clear_screen
-{
-	LDA #0:TAY
-	LDX #HI(ScreenBytes)
-	LDA #HI(ScreenAddr):STA addr+2
-	LDA #0
-.loop
-.addr
-	STA ScreenAddr,Y					; self-modified: the page
-	INY:BNE loop
-	INC addr+2
-	DEX:BNE loop
-	RTS
 }

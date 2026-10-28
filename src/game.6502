@@ -13,8 +13,8 @@ KeyLeft = 1:KeyRight = 2:KeySlow = 4:KeyDrop = 8
 StateFree = 0:StateLive = 1:StateDying = 2
 HeldSlot = MaxBalls						; the drawn records past the balls': the held ball, and the next
 NextSlot = MaxBalls + 1
-NextX = 2 * 95							; the next ball's centre in the panel, units: under NEXT
-NextY = 64
+NextX = GenNextX						; the next ball's centre in the panel, units: under NEXT
+NextY = GenNextY
 
 SECTION MainVars
 .Score			SKIP 3					; BCD, low byte first
@@ -38,31 +38,6 @@ SECTION MainVars
 .FrameKeys		SKIP 1					; and as this frame took them
 .ScoreShown		SKIP 1					; non-zero once the score on the screen is right
 ENDSECTION
-
-\\ A random byte: a 16-bit Galois LFSR (taps &B400), shifted eight times (game.py's Rng).
-\\
-\\ Inputs:
-\\     Seed
-\\
-\\ Outputs:
-\\     A: the byte; Seed moved on
-\\     Y: corrupted
-
-.rand
-{
-	LDY #8
-	LDA Seed
-.loop
-	LSR Seed+1:ROR A
-	BCC next
-	PHA
-	LDA Seed+1:EOR #&B4:STA Seed+1
-	PLA
-.next
-	DEY:BNE loop
-	STA Seed
-	RTS
-}
 
 \\ Start a game: no balls, the score nought, two random sizes to drop.
 \\
@@ -91,18 +66,6 @@ ENDSECTION
 	JSR drop_size:STA Next
 	LDA #LO((WellLeft + WellRight) DIV 2 * 256):STA DropperX
 	LDA #HI((WellLeft + WellRight) DIV 2 * 256):STA DropperX+1
-	RTS
-}
-
-\\ A random size to drop, 1-4.
-\\
-\\ Outputs:
-\\     A: the size; Y corrupted
-
-.drop_size
-{
-	JSR rand
-	AND #3:CLC:ADC #1
 	RTS
 }
 
@@ -209,9 +172,9 @@ ENDSECTION
 	JSR alloc:BCC no
 	STX slot
 	LDA Held:STA BallSize,X
-	JSR rand:AND #15:SEC:SBC #8			; jitter, -8 to 7: the original's +-0.05 px
-	LDX slot
-	STA t
+	JSR rand:EOR &FE44:STA t			; system VIA: T1 low. A random fraction of a unit either way, so
+										; drops at one place don't stack exactly balanced (T1 alone comes
+										; round to four phases a frame apart: the LFSR mixes it)
 	CLC:LDA DropperX:ADC t:STA BallXLo,X
 	LDA t:AND #&80:BEQ P%+4:LDA #&FF	; its sign
 	ADC DropperX+1:STA BallXHi,X
@@ -232,7 +195,7 @@ ENDSECTION
 .no
 	CLC
 	RTS
-	ZA_AUTO1 slot, t					; local: the new ball's slot; the jitter
+	ZA_AUTO1 slot, t					; local: the new ball's slot; the fraction
 }
 
 \\ A free slot: the lowest, for a ball made now.
@@ -377,9 +340,15 @@ ENDSECTION
 	INC Chain
 .scored
 	LDX Chain:INX:STX times
+	LDA size:CMP #10:BCC bcd
+	ASSERT CriticalSize <= 19, "a size as BCD: 10 to 19 are + 6"
+	ADC #5								; 10 and up as BCD: + 6 (C set)
+.bcd
+	STA points
 .score
-	LDA size:JSR add_score				; (sizes are 1-9: the same in BCD)
+	LDA points:JSR add_score
 	DEC times:BNE score
+	ZA_AUTO1 points						; local: the size, BCD
 
 	\\ critical: shown whole, then it explodes
 
@@ -428,19 +397,22 @@ ENDSECTION
 	LDY piece
 	LDA PieceSize,Y:STA BallSize,X
 	STX slot
+	LDA PieceDX,Y:JSR halves			; the piece's place: the critical ball's, offset
 	LDY crit
-	CLC:LDA BallXLo,Y:LDY piece:ADC PieceDXLo,Y:LDX slot:STA BallXLo,X
-	LDY crit:LDA BallXHi,Y:LDY piece:ADC PieceDXHi,Y:STA BallXHi,X
+	CLC:ADC BallXLo,Y:STA BallXLo,X
+	LDA wide:ADC BallXHi,Y:STA BallXHi,X
+	LDY piece
+	LDA PieceDY,Y:JSR halves
 	LDY crit
-	CLC:LDA BallYLo,Y:LDY piece:ADC PieceDYLo,Y:STA BallYLo,X
-	LDY crit:LDA BallYHi,Y:LDY piece:ADC PieceDYHi,Y:STA BallYHi,X
+	CLC:ADC BallYLo,Y:STA BallYLo,X
+	LDA wide:ADC BallYHi,Y:STA BallYHi,X
 	LDA #0:STA BallAge,X
 	JSR add_ball
 	LDY piece
-	LDA PieceVXLo,Y:STA BallVXLo,X
-	LDA PieceVXHi,Y:STA BallVXHi,X
-	LDA PieceVYLo,Y:STA BallVYLo,X
-	LDA PieceVYHi,Y:STA BallVYHi,X
+	LDA PieceVX,Y:JSR eighths:STA BallVXLo,X
+	LDA wide:STA BallVXHi,X
+	LDA PieceVY,Y:JSR eighths:STA BallVYLo,X
+	LDA wide:STA BallVYHi,X
 	JSR clamp_ball
 	INC piece
 	JMP pieces
@@ -454,7 +426,36 @@ ENDSECTION
 	LDA #SoundExplode:STA SoundReq
 	LDA #ChainFrames + 1:STA ChainLeft	; (counted down before a frame's merges)
 	JMP loop
-	ZA_AUTO1 slot						; local
+	ZA_AUTO1 slot, wide					; local: the piece's slot; a value's high byte
+
+	\\ A signed byte of half units, as 8.8.
+	\\
+	\\ Inputs:
+	\\     A: the byte
+	\\
+	\\ Outputs:
+	\\     A: the low byte; wide: the high; X, Y kept
+
+.halves
+	CMP #&80:ROR A:STA wide				; >> 1, the sign kept (C: the bit shifted out)
+	LDA #0:ROR A						; << 7: that bit on top
+	RTS
+
+	\\ A signed byte of eighths of a unit, as 8.8.
+	\\
+	\\ Inputs:
+	\\     A: the byte
+	\\
+	\\ Outputs:
+	\\     A: the low byte; wide: the high; X, Y kept
+
+.eighths
+	PHA
+	CMP #&80:ROR A:CMP #&80:ROR A:CMP #&80:ROR A
+	STA wide							; >> 3, the sign kept
+	PLA
+	ASL A:ASL A:ASL A:ASL A:ASL A		; << 5
+	RTS
 }
 
 \\ Keep a new piece in the well (physics.py's clamp).
@@ -658,30 +659,3 @@ ENDSECTION
 	LDA Held:STA HeldGrow
 	RTS
 }
-
-\\ The game's tables, by size: from the drawn radius, as they're about what's seen
-
-.DropLoLo	EQUB LO(WellLeft * 256 + GenWallQ * 64 + 256)	; the dropper's limits
-.DropLoHi	EQUB HI(WellLeft * 256 + GenWallQ * 64 + 256)
-.DropHiLo	EQUB LO(WellRight * 256 - GenWallQ * 64 - 256)
-.DropHiHi	EQUB HI(WellRight * 256 - GenWallQ * 64 - 256)
-.HeldYLo	EQUB LO(RimLine * 256 - GenWallQ * 64)		; the held ball's centre: on the rim
-.HeldYHi	EQUB HI(RimLine * 256 - GenWallQ * 64)
-.RimLo		EQUB LO(RimLine * 256 + GenWallQ * 64)		; a centre above this pokes above the rim
-.RimHi		EQUB HI(RimLine * 256 + GenWallQ * 64)
-.RimTwoLo	EQUB LO((RimLine + 2) * 256 + GenWallQ * 64)	; the held ball waits till the drop's below
-.RimTwoHi	EQUB HI((RimLine + 2) * 256 + GenWallQ * 64)
-.HalfHeights	EQUB GenHeights DIV 2
-
-\\ The explosion patterns
-
-.PatternStart	EQUB GenPatternStart
-.PieceSize		EQUB GenPieceSize
-.PieceDXLo		EQUB LO(GenPieceDX)
-.PieceDXHi		EQUB HI(GenPieceDX)
-.PieceDYLo		EQUB LO(GenPieceDY)
-.PieceDYHi		EQUB HI(GenPieceDY)
-.PieceVXLo		EQUB LO(GenPieceVX)
-.PieceVXHi		EQUB HI(GenPieceVX)
-.PieceVYLo		EQUB LO(GenPieceVY)
-.PieceVYHi		EQUB HI(GenPieceVY)

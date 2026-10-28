@@ -3,7 +3,7 @@
 	.venv/bin/python tools/test_plot.py [--cases 600] [--seed 1]
 
 The screen starts as random bytes, so EOR, not store, is what's checked. Each case moves a ball from an
-old drawing to a new one (either may be none) and compares all of &4800-&7FFF with the model's
+old drawing to a new one (either may be none) and compares all of the screen's memory with the model's
 before EOR old EOR new. The cases: random pairs; no move; small moves down, up and across, as the physics
 makes; a size's step up in place (a merge's growth); a colour change; drawing from nothing; and taking
 away to nothing. Every shape at both parities is drawn.
@@ -18,7 +18,7 @@ from mode2 import ScreenBase, ScreenSize, Screen
 from render import ball_bytes
 from shapes import CriticalSize, make_shapes
 
-WellPx, WellPxEnd, Floor = 4, 68, 216
+WellPx, WellPxEnd, Floor = 0, 64, 216				# the well, in pixels from its left (D18), and its floor
 
 
 def expected(before, old, new, shapes):

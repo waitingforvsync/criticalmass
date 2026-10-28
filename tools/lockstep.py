@@ -23,6 +23,8 @@ def bcd(m, addr, n):
 	v = 0
 	for i in reversed(range(n)):
 		b = m.peek(addr + i)
+		if b >> 4 > 9 or b & 15 > 9:
+			return f"not BCD: &{b:02X}"
 		v = v * 100 + (b >> 4) * 10 + (b & 15)
 	return v
 
@@ -40,10 +42,13 @@ def model_state(g):
 
 
 def scene_critical(g, m):
-	"""A small pile, and two size-9 balls dropped into it: they merge to critical mass, which explodes."""
+	"""A small pile, and two balls a merge from critical mass dropped into it: they merge to critical mass,
+	which explodes."""
 	from physics import Ball, One, WellLeft
+	from shapes import CriticalSize
+	big = CriticalSize - 1
 	balls = [(2, 30, 200), (3, 60, 196), (1, 90, 205), (4, 110, 190), (2, 48, 180), (3, 80, 175),
-			 (9, 40, 40), (9, 100, 60)]
+			 (big, 40, 40), (big, 100, 60)]
 	for slot, (size, x, y) in enumerate(balls):
 		b = Ball(size, (WellLeft + x) * One, y * One, age=255)
 		g.world.add(b)
@@ -85,7 +90,6 @@ def main():
 	screen = Screen()
 	background(screen)
 	m = Machine()
-	m.call("make_tables")
 	mem = m.mpu.memory
 	mem[ScreenBase:ScreenBase + ScreenSize] = list(screen.mem)
 	# the model's Rng before it drew its first two sizes: the 6502 starts from the same
@@ -107,13 +111,18 @@ def main():
 	m.poke(m["Keys"], keys0)
 	m.call("draw_frame")				# and the 6502's
 	costs = []
+	import random
+	via_rnd = random.Random(args.seed * 31 + 7)
 	for frame in range(args.frames):
 		if args.scene == "explosions" and frame % 60 == 10 and len(g.world.order) < 36:
 			from physics import One, WellLeft
-			inject(m, g, 9, round((WellLeft + 32) * One), round(40 * One))
-			inject(m, g, 9, round((WellLeft + 96) * One), round(40 * One), vx=-One // 2)
+			from shapes import CriticalSize
+			inject(m, g, CriticalSize - 1, round((WellLeft + 32) * One), round(40 * One))
+			inject(m, g, CriticalSize - 1, round((WellLeft + 96) * One), round(40 * One), vx=-One // 2)
 		keys = 0 if args.scene == "critical" else bot.decide()
-		g.keys(keys)
+		via = via_rnd.randrange(256)		# the system VIA's T1 low byte, as the drop reads it
+		m.poke(0xFE44, via)
+		g.keys(keys, via)
 		g.step()
 		g.draw(screen)
 		m.poke(m["Keys"], keys)
@@ -145,6 +154,7 @@ def main():
 		  f"score {g.score}, {g.merges} merges, {g.explosions} explosions{', game over' if g.over else ''}")
 	print(f"  game_frame: median {pct(costs, 0.5)}, 90% {pct(costs, 0.9)}, 95% {pct(costs, 0.95)}, "
 		  f"max {max(costs)} cycles; over 80,000: {sum(c > 80000 for c in costs)}")
+	print(f"  stack: {m.stack_depth} bytes at most (of 64; the IRQ adds 9), the return address included")
 
 
 if __name__ == "__main__":

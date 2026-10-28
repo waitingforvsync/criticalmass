@@ -1,34 +1,40 @@
 \\ memory.6502 - where everything lives once MASS has the machine: the zero page pool, main RAM's
-\\ regions, and its pools of workspace, as virtual sections claimed where they're used.
+\\ regions, and its pools of workspace, as virtual sections claimed where they're used (D14, D18).
 
 \\   &0000  zero page: the pool, bar &FC (the MOS's IRQ entry saves A there)
-\\   &0100  the stack
-\\   &0200  IRQ1V at &204, and the game's variables after it (MainVars), below &287
-\\   &0300  tables the loader makes (Tables)
-\\   &0500  the balls (Balls, balls.6502)
-\\   &0D00  an RTI, for stray NMIs (claimed from the filing system)
-\\   &0E00  main RAM's code (MainCode), unpacked by the loader from MASS
-\\   &4800  the screen, 64 x 28. MASS loads here: main RAM's code packed by ZX02, then the loader, which
-\\          runs in place, unpacks it, and goes to main, which clears the screen (and the loader with it)
+\\   &0100  the stack: 64 bytes, to &13F
+\\   &0140  main RAM's code, fitted around the bytes that can't move: IRQ1V at &204 (the code's own, so
+\\          unpacking sets it), the game's variables after it (MainVars, to &257), &258 = 2 (*FX200: clear
+\\          memory on BREAK), and an RTI at &D00 for stray NMIs (claimed from the filing system). The near
+\\          and merge lists take the room the code leaves before &D00 (LowSpace)
+\\   GenBakedOrg  the tables MASS holds (gendata.py's tables.6502), up to the screen
+\\   &33E8  the screen, 64 x 28: the well's rows each a page, from &3400 (D18)
+\\   &6BE8  the workspace (the balls). The loader runs here while MASS loads and unpacks
+\\   GenMadeOrg  the tables the loader makes (made.6502), up to &8000. !BOOT's title is there, up while
+\\          MASS loads and unpacks: everything MASS holds goes under it
+\\
+\\ MASS is one payload, packed by ZX02: the code, its tables and the screen, &140 up to the screen's end,
+\\ which the loader unpacks in place. It loads so that the payload ends just past the screen's end, the
+\\ loader after it: unpacking forward, the reading stays ahead of the writing.
 
 ZA_POOL &00..&FB, &FD..&FF				; &FC: the MOS's IRQ entry saves A there
 
-MainVarsOrg = &0206						; after IRQ1V
-MainVarsEnd = &0287						; below *FX247's BREAK intercept (the MOS JMPs to &287 if it's &4C)
-TablesOrg = &0300
-TablesEnd = &0500
-BallsOrg = &0500
-BallsEnd = &0D00
-NmiOrg = &0D00
-CodeOrg = &0E00
-LoadAddr = ScreenAddr					; MASS loads into the screen's memory (MODE 7's is at &7C00, above it)
+StackTop = &013F						; 64 bytes of stack, &100 up
+CodeOrg = &0140
+Irq1V = &0204
+MainVarsOrg = &0206						; after IRQ1V, to *FX200's byte
+BreakEffect = &0258						; *FX200: 2 clears memory on BREAK
+PlotOrg = &0290							; the plotter: where none of its hot loops crosses a page
+NmiOrg = &0D00							; an RTI, for stray NMIs
+TitleAddr = &8000 - GenTitleChars * GenTitleRows * 8	; !BOOT's title (boot.6502)
+PayloadSlack = 16						; the packed payload ends this far past the screen's end
+EntryOrg = ScreenEnd + PayloadSlack		; the loader, straight after the packed payload
 
-SECTION Tables, org = TablesOrg, guard = TablesEnd, virtual = TRUE
-.SqLo									; v * v for v in 0..255, low and high bytes (the loader's)
-	SKIP 256
-.SqHi
-	SKIP 256
+SECTION MainVars, org = MainVarsOrg, guard = BreakEffect, virtual = TRUE
 ENDSECTION
 
-SECTION MainVars, org = MainVarsOrg, guard = MainVarsEnd, virtual = TRUE
+SECTION LowSpace, org = lowspace, guard = NmiOrg, virtual = TRUE
+ENDSECTION
+
+SECTION Workspace, org = ScreenEnd, guard = GenMadeOrg, virtual = TRUE
 ENDSECTION

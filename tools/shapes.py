@@ -13,16 +13,31 @@ with the longer span, and the full run both, or only one in an edge column where
 import math
 from dataclasses import dataclass, field
 
-# Drawn radius for each size, in units: the original's 0.8 + 2s at 1.6 units a PICO-8 pixel, so its
-# 80-pixel board is our 128-unit well. Size CriticalSize explodes (D8, P4).
-CriticalSize = 10
+# Drawn radius for each size, in units, from the original's 0.8 + 2s at 1.6 units a PICO-8 pixel (its
+# 80-pixel board is our 128-unit well). Size CriticalSize explodes (D8, P4). Sizes 1 to 11 run in equal
+# steps from the original's size 1 to its size 9: two of the largest touching must stay under 64 units for
+# the collision maths (tables.py). The critical ball is one of the original's steps past its size 10.
+CriticalSize = 12
 MaxSize = CriticalSize
+SmallRadius = 1.6 * (0.8 + 2 * 1)		# 4.48
+LargeRadius = 1.6 * (0.8 + 2 * 9)		# 30.08
+CriticalRadius = 1.6 * (0.8 + 2 * 11)	# 36.48
 
 Margin = 0.75							# units the physics circle is outside the drawn one (3 quarter units)
 
+# Shapes drawn by hand where the raster doesn't look round, as (radius, each pixel column's span, height).
+# Size 3 (violet) rasterised 9 by 19, its sides 11 lines straight, and looked like a hexagon (Rich): its
+# blue pixels are dark, so the eye follows the magenta checker's outline. 10 by 20 reads rounder; its
+# radius is the shape's, 10 units (not 9.6), so the physics' margin, the walls and the rim follow it.
+Overrides = {3: (10.0, [8, 14, 18, 20, 20, 20, 20, 18, 14, 8], 20)}
+
 
 def draw_radius(size):
-	return 1.6 * (0.8 + 2 * size)
+	if size in Overrides:
+		return Overrides[size][0]
+	if size >= CriticalSize:
+		return CriticalRadius
+	return SmallRadius + (size - 1) * (LargeRadius - SmallRadius) / (CriticalSize - 2)
 
 
 def physics_radius(size):
@@ -100,9 +115,13 @@ def best_shape(size, radius):
 			if best is None or e < best[0]:
 				best = (e, w2, h2, spans)
 	_, w, h, spans = best
-	shape = Shape(size, radius, w, h, spans)
+	return shape_from(size, radius, spans, h)
+
+
+def shape_from(size, radius, spans, height):
+	shape = Shape(size, radius, len(spans), height, list(spans))
 	for p in (0, 1):
-		shape.runs[p] = column_runs(spans, h, p)
+		shape.runs[p] = column_runs(spans, height, p)
 	return shape
 
 
@@ -137,8 +156,12 @@ def column_pixels(col, height):
 
 
 def make_shapes(radius_fn=None):
+	"""Each size's shape: the best raster of its radius, or the hand-drawn one (Overrides, for the drawn
+	radius only)."""
+	overrides = Overrides if radius_fn is None else {}
 	radius_fn = radius_fn or draw_radius
-	return {s: best_shape(s, radius_fn(s)) for s in range(1, MaxSize + 1)}
+	return {s: shape_from(s, *overrides[s]) if s in overrides else best_shape(s, radius_fn(s))
+			for s in range(1, MaxSize + 1)}
 
 
 if __name__ == "__main__":

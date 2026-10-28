@@ -28,7 +28,6 @@ def main():
 	screen = Screen()
 	background(screen)
 	m = Machine()
-	m.call("make_tables")
 	mem = m.mpu.memory
 	mem[ScreenBase:ScreenBase + ScreenSize] = list(screen.mem)
 	names = [f"plot_ball.{k}{s}" for s in "ab" for k in ("shape", "colour", "px", "line")]
@@ -64,9 +63,9 @@ def main():
 				vals = list(old or (0, 0, 0, 0)) + list(b.drawn or (0, 0, 0, 0))
 				plot += m.call("plot_ball", **dict(zip(names, vals)))
 		# the score's text is plain stores, not the plotter's: copy the model's lines of it
-		from font import BestLine, ScoreLine
+		from layout import BestLine, BoxCol, BoxCols, ScoreLine
 		for line in list(range(ScoreLine, ScoreLine + 10)) + list(range(BestLine, BestLine + 10)):
-			for col in range(35, 64):
+			for col in range(BoxCol, BoxCol + BoxCols):
 				off = (line >> 3) * 512 + col * 8 + (line & 7)
 				mem[ScreenBase + off] = screen.mem[off]
 		if bytes(mem[ScreenBase:ScreenBase + ScreenSize]) != bytes(screen.mem):

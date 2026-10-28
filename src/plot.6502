@@ -137,7 +137,9 @@ ZA_AUTO2 eorptr							; eor_up's: the row's byte in the column
 	\\ the same colour: straight up or down, or each pixel column's spans
 
 .samecolour
-	LDA shapea:CMP shapeb:BNE pixels
+	LDA shapea:CMP #GenFastShapes + 1:BCS far	; the critical ball: not in these paths' tables, so the
+	LDA shapeb:CMP #GenFastShapes + 1:BCS far	; old away and the new in (it moves for a few frames only)
+	CMP shapea:BNE pixels
 	LDA pxa:CMP pxb:BNE pixels
 	JMP plot_vertical
 .pixels

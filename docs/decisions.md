@@ -47,7 +47,96 @@ details are P4.
 - Where two balls overlap, their EOR is even, so the overlap shows as a black seam.
 
 ### D11. Emulator: jsbeeb-mcp only, never b2 (2026-10-28)
-Other sessions drive b2 through its fixed HTTP port.
+Other sessions drive b2 through its fixed HTTP port. `make run` (b2, a window of its own) is Rich's: Claude
+never runs it.
+
+### D12. 12 sizes in the same range; critical mass one step bigger (2026-10-28, supersedes O3)
+Rich: "a few more distinct sizes of balls, and the biggest ball (critical mass) should be one larger". He
+chose "more sizes, same range" and 12 sizes over the other options.
+- Sizes 1 to 11 run in equal steps of 2.56 units (radius), from the original's size 1 (4.48) to its size 9
+  (30.08). Before, there were 9 steps of 3.2.
+- Critical mass is size 12: radius 36.48, one of the original's steps past its size 10. Its pairs' R is
+  capped at 255 quarter units (it overlaps by up to about 4 units for the 6 frames before it explodes).
+- The physics is unchanged. Two touching balls must sum under 64 units, which is why the range stays put.
+
+### D13. The screen, after Rich's prototype (2026-10-28, supersedes P1's walls)
+Rich: "clear the rest of the screen to a checkerboard 4x8 mode 2 pixels black/dark blue (where dark blue is
+in fact stippled blue/black)", with "a small margin of that on the left side of the playfield too". He chose
+the prototype's thin white walls and black boxes for the panel.
+- The checker: blocks of two byte columns by a character row, black and blue stippled with black. The top
+  left block is dark.
+- One block of margin, then the left wall at column 2 (its inner pixel white), the well at columns 3 to 34,
+  the right wall at 35.
+- A two-line white floor, then two black lines, then the checker. The rim is a white tick out from each
+  wall, two lines deep.
+- The panel: black boxes cut out of the checker on its blocks, at columns 40 to 59. They hold the name, NEXT
+  (with the next ball), SCORE and BEST.
+- GAME OVER goes in the middle of the well, in a black box over the balls (Rich: "move the game over text
+  to the centre of the playfield (drop the RETURN text)"). A new game clears the well, and the box with it.
+- `tools/layout.py` has it all.
+
+### D14. The memory map, and a loader that makes what it can (2026-10-28, supersedes P9)
+Rich:
+- "We will reserve 64 bytes stack from &100-&13F. The code org will be &140, it will directly contain the
+  set IRQ vector (see teddyboy), fit routines around the places that can't move like IRQ1V, &258, &D00
+  (NMI RTI)".
+- "make sure all the tables are generated, and put them directly below the screen memory". And: "If the
+  code to generate them is bigger than the actual tables let's just leave them embedded."
+- "The UI should largely be copied to screen in entry.6502 and then discarded… Just digits (score) and the
+  glyphs we need for GAME OVER."
+
+The rest, as built (P15 has Claude's details):
+- The code runs from &140 with IRQ1V at &204 its own, MainVars at &206 to &257, &258 = 2 (*FX200: clear
+  memory on BREAK), and RTI at &D00. What a BREAK leaves isn't a concern (Rich).
+- Then the workspace (the balls), the free space, and the tables up to &4800.
+- MASS holds the code, the tables and the starting screen, each packed by ZX02, then the loader.
+- The loader makes the tables that cost more packed than made.
+- The screen's static parts are only ever the loader's. The 6502's font is the digits and GAME OVER's
+  letters (O is 0): 17 glyphs.
+
+### D16. Rounder purple balls (2026-10-28)
+Rich: "can you make the purple balls look more round. They currently look more like hexagons". Claude's
+answer is P16, waiting for Rich.
+
+### D17. A drop's random fraction, from the VIA (2026-10-28)
+Rich: "add some random pixel fraction to the start position… currently they all balance precisely which I
+don't want. You can get randomness from a VIA timer." How much, and how it's mixed, is P17.
+
+### D18. The screen is a PNG, unpacked with the code; the memory map round it (2026-10-28, supersedes D14's map)
+Rich:
+- "create a png of the entire screen which we will convert to bbc screen format and INCBIN to the end of
+  the code. It will then be zx02 compressed and entry will decompress it directly to the screen."
+- "logo_preview.png… at the top of the sidebar (with a character margin all the way round)". "Once it is
+  a png we can keep on retouching it until we have what we need." The PNG has "the dimensions of the
+  runtime screen", "along with the playfield boundaries, score/next/etc text, checkerboard and so on".
+- "We place the code, baked tables and screen contiguously in memory, ideally that the screen is at &XXE8
+  so that the start of the playfield is page aligned, for ease. Then generated tables and workspace live
+  above the screen. We will need to arrange for the compressed payload to end at least at the screen end
+  address, if not above." The decompressor "can sit above the compression payload as always".
+- So: `assets/screen.png` is the starting screen and the source. The code, MASS's tables and the screen
+  are one ZX02 payload from &140, unpacked in place to the screen at &33E8. The workspace and the loader's
+  tables are above it. P18 has Claude's details.
+
+### D19. The loading title is MODE 2 (2026-10-28)
+Rich: "I also have a mode 2 title screen in docs/title_preview.png which I would like to use instead of the
+mode 7 text… We don't need the interrupt, just set the screen via CRTC direct writing to the image
+dimensions, set the Video ULA via OSBYTE 154, and the palette via FE21 writes. Don't enable screen (CRTC
+R8) until image is decompressed."
+- `assets/title.png` is 128 × 64 pixels, 64 characters by 8 rows. It's packed in !BOOT and unpacked to
+  &7000, centred as the game's screen is.
+- The palette is logical = physical.
+
+### D20. The labels in a stylised font, centred (2026-10-28)
+Rich: "please change the text "NEXT", "SCORE", "BEST" to a different font. We don't need to try to emulate
+the pico-8. Something centred and more stylised is fine, now that we don't rely on drawing it ourselves".
+The font is P19.
+
+### D15. Releases go to the site's staging folder (2026-10-28)
+Rich: "publish the disk image to ~/dev/waitingforvsync.github.io/beeb/ in the same way that teddyboy does, as
+part of the release workflow".
+- `make release MSG="..."` copies the disc there as `criticalmass.ssd`, commits only that file (the commit
+  names this repo's), and pushes.
+- Run it after `make test` passes.
 
 ---
 
@@ -55,7 +144,8 @@ Other sessions drive b2 through its fixed HTTP port.
 
 ### P1. The screen: the old layout
 - 64 characters by 28 rows (128 × 224 pixels), with the screen at &4800.
-- The well is 32 bytes inside, with 1-byte walls. A 30-byte panel sits on the right.
+- The well is 32 bytes inside, with 1-byte walls. A 30-byte panel sits on the right. (D13 has the walls and
+  the panel now.)
 
 ### P2. Units: 1 unit = 1 scanline = half a MODE 2 pixel
 - Space is square, as in the old code.
@@ -168,11 +258,113 @@ numbers are Claude's.
     settings.
   - `game-2-stiff.mp4` is a 90-second bot game.
 
+### P13. Drops are sizes 1 to 5 (2026-10-28)
+With 12 sizes, sizes 1 to 5 (radius 4.48 to 14.72) span what 1 to 4 did (4.48 to 14.08), so the drops look
+as they did.
+- The 6502 takes a random byte's low 3 bits, again while they're 5 or more, as `game.py` does.
+- Critical mass is two more merges away than it was: still rare (O3's worry). Drop sizes are the knob.
+
+### P14. The colours for 12 sizes (2026-10-28)
+Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (pulsing), white (critical).
+- Green and magenta are new and solid, between pink and sea green.
+- Neighbours differ in hue, except sea green and ice, as before.
+- The checker's blue is CodeB, a ball colour, so it flashes white with an explosion (the walls are white,
+  so they don't show it).
+
+### P15. The memory map's details, and the loader (2026-10-28, under D14)
+- **The code's places:**
+  - `main` before &204, with 16 bytes spare.
+  - `random.6502` (`rand`, `drop_size`) after &258, then 15 spare.
+  - The plotter at &290, where none of its hot loops crosses a page.
+  - The IRQ, the screen's routines, the score and the sound before &D00 (539 bytes spare), then the physics
+    and the game.
+- **The tables:** `gendata.py` places them, from the top down.
+  - The full-page ones go on the top pages (the pixel columns and the physics' nine pages).
+  - The big ones (more than a page) go under those.
+  - The rest are packed into pages, largest first, so no table of a page or less crosses one. 41 bytes are
+    lost to padding.
+- **What the loader makes,** and what each saves in MASS:
+
+  | Tables | Packed |
+  |---|---|
+  | the squares | 291 |
+  | Times6 and Times11 | 383 |
+  | PairR² (from the squares) | 196 |
+  | PairR | 101 |
+  | the four PairC pointer tables (from a 144-byte matrix) | 329 |
+  | RowHi | 56 |
+
+  - Together that's 3,216 bytes of tables, and MASS went from 8,632 to 7,693 bytes (7,654 with D16 and
+    RETURN gone).
+  - Left embedded, because they pack small: RoundP/N (13 bytes), BitLen (14), H (25), the font (71).
+  - Not yet made: L8 (166 packed, deltas), and the shapes' tables from their spans: Runs (526), the
+    boundaries (510) and PixTop/PixBot (295).
+- **The loader:** D18 replaced its three stages with one in-place unpack. Loading takes 1.25M cycles
+  (0.6 s) once MASS is in.
+- **To fit the tables:**
+  - The critical ball's shape is left out of the plotter's two-band and vertical paths: its few frames of
+    moves go old-away, new-in. Otherwise PixTop would need a second page.
+  - The explosion patterns are a byte a number (240 bytes less).
+- **The stack's deepest is 11 bytes** in the explosions scene, plus the IRQ's 9.
+- **Spare memory (D18's map):** 218 bytes between the code and its tables, 185 before &D00 (after the near
+  lists), 13 in the tables, about 200 in the workspace, and 320 among the loader's tables.
+
+### P16. Size 3 drawn by hand, 10 by 20 (2026-10-28, for D16)
+- The raster was 9 by 19, its sides 11 lines straight. Its blue pixels are dark, so the eye follows the
+  magenta checker's outline: a hexagon.
+- Claude drew eight candidates in all four dither phases. Spans `8 14 18 20 20 20 20 18 14 8`, 10 by 20,
+  read roundest.
+- Its radius is the shape's: 10 units, not 9.6. So the physics keeps its 0.75-unit margin, and the walls,
+  the rim and the dropper's limits follow. (The review found that 9.6 left a 0.25 margin, and let it touch
+  the held ball at the rim.)
+- `Overrides` in `shapes.py`. The azure size 5 (blue and cyan) has the same look and could have the same
+  treatment.
+
+### P17. The drop's fraction: T1 EOR the LFSR, ±half a unit (2026-10-28, for D17)
+- A drop adds a random byte EOR the system VIA's T1 low byte (&FE44), signed, as 256ths of a unit: up to
+  half a unit either way, a quarter of a pixel.
+- It replaces the original's ±8/256 jitter, which the collisions' quarter units rounded away.
+- T1 alone isn't enough (the review): it runs at the MOS's 10,000 µs and a frame is 39,936 µs. At the
+  drop's place in a frame, its low byte comes round to four values a quarter unit apart, give or take a
+  few cycles, so one pair of drops in four would still balance. The LFSR's byte mixes it.
+- In lockstep the harness pokes the T1 byte and gives the model the same. A run of the model alone draws
+  its own.
+
+### P18. D18's details (2026-10-28)
+- **`assets/screen.png`:** 1024 × 896, 8 × 4 image pixels a MODE 2 pixel; any whole scale reads.
+  - `tools/screenpng.py --compose` drew it from `layout.py`, with the logo at columns 38-61, rows 1-4, and a
+    block of checker round it.
+  - `layout.py`'s numbers for what the game draws (the next ball, the score, GAME OVER) must follow it.
+- **The well:** its first byte is &3400, an even page. So each row of the well is a page, and the plotter's
+  `ORA colhi` still works.
+  - The 6502 draws by columns from the well's first, and x in units counts from the well's left edge.
+- **Above the screen:** the workspace first, then the loader's tables up to &8000.
+  - The loader runs inside the workspace while MASS loads, so its tables can't reach it.
+  - The workspace isn't zeroed: the game sets everything it reads (the review checked).
+  - `make_tables` zeroes its own region first, because the pair tables' "no pair" entries must be 0. The
+    tests now start from junk-filled memory with the title in place, which is how that was found.
+  - The near and merge lists moved to the room the code leaves before &D00 (LowSpace), so the workspace
+    fits under the loader's tables.
+- **Unpacking in place:** MASS loads so that the packed payload ends 16 bytes past the screen's end, the
+  loader after it.
+  - This payload needs 2. A tail that packs badly needs more: ZX02's runs are at most 256, and 3,000 random
+    bytes needed 20.
+  - `tools/check_inplace.py` runs the loader's decoder at every `make` and fails if its writing ever
+    catches its reading.
+- **The title:** !BOOT's title is at &7000 while MASS loads, so all of MASS (its last sector included)
+  stays under it, and the title stays up until the payload's unpacked.
+
+### P19. The labels' font (2026-10-28, for D20)
+- 4 × 5 pixels, each row two lines, centred on the boxes' middle.
+- A white top row over cyan, with a blue shadow a pixel right and two lines down, as the logo's CRITICAL.
+- `font.py`'s `LabelGlyphs`. It's in `screen.png` only, so the PNG can be retouched freely.
+- The score's 6-digit field is centred too: column 44.
+
 ---
 
 ## Open
 
-### O3. The critical size: 10 or 9?
+### O3. The critical size: 10 or 9? (superseded by D12: 12 sizes)
 - With 10, the bot never reached critical mass in 2-minute games (seeds 2 and 3, 3,000 frames each). It
   happens only in the forced scene.
 - With 9 (and 12% bigger balls), it exploded once or twice a game.
@@ -197,6 +389,9 @@ numbers are Claude's.
   - Identical piles cost about 8% less (fewer contacts). So it's how crowded the board gets that decides
     it, as before.
   - The repeated-explosion scene now peaks at 141K cycles.
+- **With D12 to D14** (12 sizes, drops 1 to 5): seed 3's lockstep game, 1,100 frames, has a median of
+  52,600 cycles, 83,500 at the 95th percentile, and 8.5% of frames over. The repeated-explosion scene is 43%
+  over, peaking at 175K.
 - Explosions are the worst frames: a repeated-explosion stress scene peaked around 200K cycles before P12.
 - The cost is the physics, at about 750 cycles a contact each pass.
 - Options:

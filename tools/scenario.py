@@ -15,6 +15,7 @@ from game import Game
 from mode2 import Columns, Lines, Screen
 from model import background, frame_rgb
 from physics import Ball, Floor, One, Params, WellLeft
+from shapes import CriticalSize
 
 
 def main():
@@ -41,8 +42,8 @@ def main():
 				   age=255))
 	for k in range(160):
 		if k == 50:
-			w.add(Ball(9, round((WellLeft + 32) * One), round(40 * One), age=255))
-			w.add(Ball(9, round((WellLeft + 96) * One), round(40 * One), vx=-One // 2, age=255))
+			w.add(Ball(CriticalSize - 1, round((WellLeft + 32) * One), round(40 * One), age=255))
+			w.add(Ball(CriticalSize - 1, round((WellLeft + 96) * One), round(40 * One), vx=-One // 2, age=255))
 		game.step()
 		f = game.draw(screen)
 		if game.events and game.events[-1][1] == game.step_no:

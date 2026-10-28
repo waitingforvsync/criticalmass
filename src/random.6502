@@ -1,0 +1,44 @@
+\\ random.6502 - the random numbers (game.py's Rng), and the sizes to drop.
+
+\\ A random byte: a 16-bit Galois LFSR (taps &B400), shifted eight times (game.py's Rng).
+\\
+\\ Inputs:
+\\     Seed
+\\
+\\ Outputs:
+\\     A: the byte; Seed moved on
+\\     Y: corrupted
+
+.rand
+{
+	LDY #8
+	LDA Seed
+.loop
+	LSR Seed+1:ROR A
+	BCC next
+	PHA
+	LDA Seed+1:EOR #&B4:STA Seed+1
+	PLA
+.next
+	DEY:BNE loop
+	STA Seed
+	RTS
+}
+
+\\ A random size to drop, 1 to GenDropSizes, evenly: a byte's low 3 bits, again while they're too big
+\\ (game.py's drop_size).
+\\
+\\ Inputs:
+\\     Seed
+\\
+\\ Outputs:
+\\     A: the size; Seed moved on; Y corrupted
+
+.drop_size
+{
+.again
+	JSR rand
+	AND #7:CMP #GenDropSizes:BCS again
+	ADC #1								; (C clear)
+	RTS
+}

@@ -57,12 +57,12 @@ def random_scene(rnd):
 
 
 def edge_scenes():
-	"""Size-1 balls at each limit, flung at it: x + vx past 65535 at the right wall, below 0 at the left,
-	y + vy past 65535 at the floor, below 0 at the screen's top. (At the right wall, only the smallest
-	balls can be flung past 65535 with room to spare.)"""
+	"""Size-1 balls at each limit, flung at it: x + vx below 0 at the left wall, y + vy past 65535 at the
+	floor, below 0 at the screen's top, and the right wall at full speed. (With x from the well's left, D18,
+	the right wall is 128 units, and x + vx can't pass 65535 there: under 128 + 128 units.)"""
 	w, r = WQ[1] << 6, RQ[1] << 6
 	right, left, floor = WellRight * One - w, WellLeft * One + w, Floor * One - w
-	assert right + 32000 > 0xFFFF and left - 32000 < 0 and floor + 32000 > 0xFFFF and r - 32000 < 0
+	assert right + 32767 <= 0xFFFF and left - 32000 < 0 and floor + 32000 > 0xFFFF and r - 32000 < 0
 	return [[Ball(1, right, 100 * One, 32000, 0), Ball(1, left, 100 * One, -32000, 0),
 			 Ball(1, 50 * One, floor, 0, 32000), Ball(1, 90 * One, r, 0, -32000)]]
 
@@ -92,7 +92,6 @@ def main():
 	args = ap.parse_args()
 	rnd = random.Random(args.seed)
 	m = Machine()
-	m.call("make_tables")
 	if args.late:
 		scenes = game_scenes(args.scenes, args.seed, every=100, skip=300)
 	else:

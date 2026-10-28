@@ -1,6 +1,7 @@
 """The physics, as the 6502 will do it: the original's soft pushes, in 8.8 fixed point at 25 Hz.
 
-Units are scanlines (half a MODE 2 pixel), measured from the screen's top-left corner. A step:
+Units are scanlines (half a MODE 2 pixel), measured from the well's left edge and the screen's top (D18).
+A step:
 
 1. Integrate: vy += gravity; x += vx; y += vy; clamp to the walls and floor, bouncing at half speed.
 2. Sort `order` by bottom edge, lowest on the screen first (an insertion sort: it's nearly sorted).
@@ -18,16 +19,18 @@ Units are scanlines (half a MODE 2 pixel), measured from the screen's top-left c
 import math
 from dataclasses import dataclass, field
 
+import layout
 from shapes import CriticalSize, physics_radius
 from tables import C, EXP, L8, RQ, SQ, WQ, exp_clamped, log16, log_d, pair_r
 
 One = 256								# 8.8 fixed point
 
-# The well, in units from the screen's top-left: byte columns 2 to 33 inside, the floor at row 27
-WellLeft = 2 * 4
-WellRight = WellLeft + 128
-Floor = 27 * 8
-Rim = 32								# a ball whose top is above this, touching another, is failing
+# The well, in units from its own left edge and the screen's top (layout.py's, D18): 32 byte columns
+# across, the floor at row 27
+WellLeft = 0
+WellRight = WellLeft + layout.WellCols * 4
+Floor = layout.FloorLine
+Rim = layout.RimLine					# a ball whose top is above this, touching another, is failing
 
 
 @dataclass

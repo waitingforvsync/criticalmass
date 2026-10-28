@@ -337,3 +337,145 @@ squishy".
   - `build/model/compare-squish.mp4` (and `.png`) is the old physics against P12's.
   - `build/model/game-2-stiff.mp4` is 90 seconds of a bot game.
 - It boots and plays in jsbeeb.
+
+## 2026-10-28 (morning): the repo and `make run`
+- The repo is on GitHub, private, MIT: waitingforvsync/criticalmass. `docs/src.lua` is Eli Piilonen's, so it
+  comes out before any public release.
+- `make run` boots the disc in b2 for Rich, as a Model B with the Acorn 1770 DFS (b2 has no 8271).
+  - `b2 -0 … -b` always starts a new process. Only a lone file argument hands the disc to a running b2,
+    over its HTTP port.
+  - The rule closes the b2 the last `make run` started (`build/b2.pid`), but only if its command line
+    still names the disc. Any other b2 is left alone.
+  - Then it waits up to 5 s for that b2 to exit, because b2 rewrites its config file in place as it
+    quits. A new b2 that read it half-written wouldn't open a window. (The review caught this, and an
+    error message when the old b2 had already gone.)
+  - A b2 started when no other is running gets b2's HTTP port (48075), so other sessions' tools, such as
+    teddyboy's `make run`, would drive it.
+  - Checked with a stand-in for b2; Claude never runs it (D11). The disc boots on jsbeeb's B1770 too.
+
+## 2026-10-28 (late morning): the prototype's screen, 12 sizes, the memory map (D12-D15, P13-P15)
+Rich asked for four things at once, then refined them while I worked:
+- the screen modelled on his prototype: a checker over everything outside the well, with a margin left;
+- a few more sizes, with critical mass one larger;
+- a new memory map: stack &100-&13F, code from &140 with IRQ1V in it, the tables generated and below the
+  screen;
+- and the screen's static parts copied to the screen by the loader and then discarded.
+
+I asked four questions (sizes, how many, the panel, the walls); his answers are D12 and D13. I built and
+looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
+
+- **12 sizes (D12).** The collision maths needs two touching balls under 64 units, and today's largest
+  pair was already at it. So sizes 1-11 fill the old range in steps of 2.56 (not 3.2), and critical mass is
+  one of the original's steps bigger, 36.48.
+  - Drops became 1-5 (P13), the same range of radii as 1-4 before.
+  - Two colours were added (P14).
+  - The critical ball's shape no longer fits PixTop's page with the others, so it's left out of the
+    plotter's two-band and vertical paths. Its moves (6 frames a time) go old-away, new-in.
+- **The screen (D13)** is `tools/layout.py`. The well moved right a byte.
+- **The memory map (D14, P15).**
+  - `main` sits before &204, then IRQ1V, then MainVars to &257, &258 = 2, and `random.6502`.
+  - The review found that a soft BREAK keeps &27E-&29B (the MOS clears from &400 and resets page 2 only
+    below &27E). The code there now leaves *TV, the language ROM and the like wrong after a BREAK. I
+    started a fix (the loader saving and restoring them), but Rich: "i don't consider what happens after
+    BREAK a bug". So it's backed out, along with the &287 = 0 I'd kept for the BREAK intercept.
+  - Then the plotter at &290 (the only start near there where no hot loop crosses a page), the rest
+    before and after &D00's RTI, then the workspace, then the tables.
+  - `gendata.py` now generates every table and places them all below the screen. The 9,506 bytes waste 41
+    on padding, and no table of a page or less crosses one.
+- **The loader makes tables (Rich: "If the code to generate them is bigger than the actual tables let's just
+  leave them embedded").** I measured each table's cost in the packed MASS by zeroing it and rebuilding:
+  - RoundP/N, BitLen, H and the font pack to under 75 bytes each, so they stay.
+  - The squares, Times6/11, PairR, PairR², the PairC pointers (from a 144-byte matrix) and RowHi are made:
+    MASS 8,632 → 7,693 bytes.
+  - Still possible: L8 by deltas (166 packed), and the shapes' tables from their spans (1,331 packed).
+- **The starting screen** is an image (`ui.bin`, `layout.background()`), packed into MASS (423 bytes).
+  - MASS lives in screen memory, so the loader parks the packed screen in the workspace and its last
+    stage (the unpacker and a stub) in the free space under the tables.
+  - It unpacks the code and the tables from there and makes its tables. The last stage unpacks the
+    screen over everything, zeroes the workspace and starts the game.
+  - The game's own drawing is now the well cleared for a new game, the next ball's box, and GAME OVER's
+    box (cut out of the checker, then put back).
+  - The 6502's font is 20 glyphs: O is 0 and S is 5.
+- **A bug the new sizes exposed:** merges add their size to the BCD score, written for sizes up to 9. A
+  size-11 merge left `&9B` in it, and the lockstep state check read that as 101, so it looked right. Only
+  the screen showed the stale digits.
+  - Fixed (sizes 10 and up converted).
+  - `lockstep.py` now rejects a score that isn't BCD.
+- **The harness** (`machine.py`) now runs the real loader, from `entry.take_over` (after the OS calls) to
+  `main`. Its stack is at &13F, and it measures each call's deepest stack: 11 bytes in the explosions scene.
+  - `test_tables.py` checks all 73 tables in memory against `tables.json`.
+  - `test_background.py` checks the unpacked screen, GAME OVER and `new_screen`.
+- **Tests:** every step of `make test` passes:
+  - tables;
+  - the screen;
+  - plot, 328 cases;
+  - physics, 21 scenes;
+  - lockstep: 400 frames, the critical scene, the explosions scene, and seed 3's 1,100 frames.
+- **It boots and plays in jsbeeb** (Model B, DFS 1.2, the OS calls and all).
+- **The budget (O2)** is worse on crowded boards: seed 3's 1,100 frames are 8.5% over.
+- **Also:** `make run` (b2, for Rich), and `make release` (D15).
+
+## 2026-10-28 (midday): rounder purple balls, a drop's random fraction, GAME OVER in the well (D16, D17)
+- **The purple balls** (size 3, violet) looked like hexagons.
+  - The raster, 9 × 19, has 11-line straight sides. The dither makes it worse: blue is dark against
+    black, so the eye follows the magenta checker.
+  - I drew eight candidates in all four dither phases. A 10 × 20 hand-drawn shape reads roundest
+    (`Overrides` in `shapes.py`, D16). Only the drawing changed.
+- **A drop's random fraction (D17).** The old jitter, ±8/256 units from the LFSR, vanished in the
+  collisions' quarter units, so drops at one place stacked balanced.
+  - A drop now adds T1's low byte (&FE44), signed: ±0.5 units.
+  - `lockstep.py` pokes the byte and passes the model the same; the model alone draws its own.
+- **GAME OVER** moved to the middle of the well, in a black box (Rich), and RETURN's text went.
+  - The panel's fifth box went with it, and `fill_box` now only blacks out, at any column.
+  - The font is 17 glyphs. MASS is 7,654 bytes.
+- **The generator** used to fill the top page exactly, by chance (Times16 and RETURN's text in PixTop's
+  23 spare bytes). It now pads the tables up to the screen.
+- **The review** found two problems, both fixed:
+  - T1 alone gives only four values at the drop's point in the frame (a frame is 39,936 µs, T1's period
+    10,000 µs), so one pair of drops in four would still balance. The drop now takes T1 EOR an LFSR
+    byte.
+  - The hand-drawn size 3 was half a unit bigger than its radius: a 0.25-unit physics margin, and it
+    could touch the held ball at the rim. Its radius is now the shape's, 10 units (RQ 43, WQ 40).
+
+## 2026-10-28 (afternoon): the screen as a PNG, unpacked with the code; a MODE 2 title (D18, D19)
+- **The screen is `assets/screen.png`** (Rich), the whole runtime screen, at his previews' scale (8 × 4 a MODE
+  2 pixel).
+  - `screenpng.py --compose` drew it from the layout, with his logo (`assets/logo.png`, 48 × 32) at the top
+    of the panel and a block of checker round it. The boxes kept their rows.
+  - From now on it's the source: `gendata.py` converts it, and the model's `background()` reads it.
+- **One payload** (Rich's design): the code, MASS's tables and the screen, contiguous from &140, packed as
+  one ZX02 stream and unpacked in place.
+  - The screen is at &33E8, so the well starts on a page, an even one: the plotter's `ORA colhi` holds.
+  - The drawing routines and the plotter count columns from the well's first. The physics' x counts from
+    the well's left edge (WellLeft 0), so a ball's x is the plotter's directly.
+  - The model's `render.py` adds the well's column when it draws.
+  - MASS loads so that the payload ends 16 bytes past the screen's end; the loader follows it.
+- **The catch:** the loader sits just above the payload, where the tables it makes would go. So the
+  workspace goes first above the screen, with the loader inside it, and the made tables go above that, up to
+  &8000.
+  - Nothing needs zeroing: the game sets everything it reads.
+  - The workspace didn't fit under the made tables (1,763 bytes in 1,608), so the near and merge lists
+    (354) moved into the room before &D00.
+- **The title (D19)** is MODE 2, in !BOOT.
+  - It sets the CRTC to 64 × 8 characters with the display off, the ULA by OSBYTE 154, and the palette by
+    &FE21, then unpacks the title to &7000 and turns the display on.
+  - MASS loads under it (&50F7-&6EE1), and the title stays up until the payload is unpacked. The loader
+    then waits for a vsync, turns the display off and sets the game's CRTC.
+- **Sizes:** MASS is 7,658 bytes with the screen in it, and !BOOT 1,321. Loading takes 1.25M cycles.
+- **Spare memory:** 218 bytes between the code and its tables, 185 before &D00, about 200 in the
+  workspace.
+- **A test that changed:** `test_physics.py`'s edge scene had a ball carry past &FFFF at the right wall.
+  With x from the well's left that can't happen (128 + under 128 units), so the scene now checks the
+  right wall at full speed instead.
+- **jsbeeb:** the title shows while MASS loads, then the game with the logo, and it plays.
+
+- **The review** of this found the 16-byte slack is only enough because this payload's tail packs well.
+  ZX02's runs cap at 256, so 3,000 random bytes need 20.
+  - `tools/check_inplace.py` now runs the loader's decoder at every `make`. This payload needs 2.
+  - The tests now start from junk-filled memory, with the title at &7000, as on the machine. That at once
+    showed the pair tables' "no pair" entries (two critical balls' R must be 0) relying on zeros that are
+    no longer there. `make_tables` now zeroes its region first.
+  - The harness's symbols now prefer MASS's: !BOOT's `zx.*` had shadowed them.
+- **The labels (D20)** are in a font of their own, now that they're only in the PNG: 4 × 5, white over cyan,
+  with a blue shadow (P19), centred in their boxes. The score's digits are centred too.
+- The log now keeps Rich's calls (D16-D20) apart from Claude's details (P16-P19), as CLAUDE.md asks.

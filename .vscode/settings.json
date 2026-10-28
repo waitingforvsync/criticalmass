@@ -1,0 +1,6 @@
+{
+    "baron.sourceFiles": [
+        "src/boot.6502",
+        "src/critical.6502"
+    ]
+}

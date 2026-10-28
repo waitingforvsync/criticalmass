@@ -15,10 +15,10 @@ import subprocess
 
 import numpy as np
 
-from colours import B, C, Palette, W, Y
-from font import BestLabel, LabelCol, MassLine, NextLabel, ScoreLabel, TitleLine, draw_text
+from colours import Palette
+from layout import background		# (the tools import it from here)
 from game import DropperSpeed, DropSizes, Game, KeyDrop, KeyLeft, KeyRight, KeySlow
-from mode2 import Columns, Lines, PhysicalRGB, Screen, byte_pixels, pixel_byte
+from mode2 import Columns, Lines, PhysicalRGB, Screen, byte_pixels
 from physics import Floor, One, Params, Rim, WellLeft, WellRight
 from shapes import draw_radius, physics_radius
 from tables import pair_r
@@ -103,28 +103,6 @@ class Bot:
 		self.target = None
 		self.wait = self.rnd.randint(4, 20)
 		return KeyDrop
-
-
-def background(screen):
-	"""The walls and the floor, as plain stores: outside the well, so never EORed."""
-	wall = pixel_byte(B, C)
-	wall_odd = pixel_byte(C, B)
-	for line in range(Lines):
-		v = wall if line % 2 == 0 else wall_odd
-		screen.put(1, line, v)
-		screen.put(34, line, v)
-		if Rim - 1 <= line <= Rim:
-			screen.put(1, line, pixel_byte(0, W))
-			screen.put(34, line, pixel_byte(W, 0))
-	for col in range(1, 35):
-		for line in range(Floor, Lines):
-			screen.put(col, line, wall if line % 2 == 0 else wall_odd)
-	# the panel's labels, and the name
-	draw_text(screen, "CRITICAL", LabelCol, TitleLine, Y)
-	draw_text(screen, "MASS", LabelCol, MassLine, Y)
-	draw_text(screen, "NEXT", LabelCol, NextLabel)
-	draw_text(screen, "SCORE", LabelCol, ScoreLabel)
-	draw_text(screen, "BEST", LabelCol, BestLabel)
 
 
 _codes = np.array([byte_pixels(v) for v in range(256)], dtype=np.uint8)

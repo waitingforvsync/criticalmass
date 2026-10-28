@@ -127,12 +127,5 @@ ENDSECTION
 	RTS
 }
 
-.ChanBits	EQUB &00, &20, &40, &60		; each channel's bits in a command byte
-
-\\ The effects, by request (from 1): channel, period lo and hi, slide, attenuation, decay, and 2 spare
-
-.Effects
-	EQUB 1, LO(500), HI(500), 8, 2, 1, 0, 0		; drop: a low thud, falling
-	EQUB 0, LO(120), HI(120), 2, 0, 2, 0, 0		; merge: a plink, lower for bigger balls
-	EQUB 3, 0, 0, 0, 0, 4, 0, 0					; explode: noise, dying away
-	EQUB 2, LO(300), HI(300), 6, 0, 6, 0, 0		; game over: a long falling tone
+\\ (ChanBits, each channel's bits in a command byte, and Effects, by request from 1: channel, period lo
+\\ and hi, slide, attenuation, decay, and 2 spare, are gendata.py's tables)

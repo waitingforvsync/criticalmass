@@ -1,27 +1,50 @@
-\\ critical.6502 - MASS: main RAM's code packed by ZX02, then the loader, which runs where MASS loads (in
-\\ the screen's memory, unused while it loads) and unpacks it to CodeOrg.
+\\ critical.6502 - MASS: one payload packed by ZX02 (the code, its tables and the screen as the game starts,
+\\ contiguous from &140 to the screen's end), then the loader, which unpacks it in place and starts the game
+\\ (D14, D18).
+\\
+\\ The code runs from &140, under a 64-byte stack, fitted around the bytes that can't move: IRQ1V (the
+\\ code's own: unpacking sets it), *FX200's byte and the NMI's RTI. The tables MASS holds come next, up to
+\\ the screen, which is assets/screen.png (tools/screenpng.py): the game draws on it only what changes.
 
-INCLUDE "zx02.6502"						; the compressor, as FUNCTIONs: MainCode's section transform
+INCLUDE "zx02.6502"						; the compressor, as FUNCTIONs: the payload's section transform
+INCLUDE "../build/gen/data.6502"
+INCLUDE "../build/gen/made.6502"		; the loader's tables' places (MadeTables)
 INCLUDE "constants.6502"
 INCLUDE "memory.6502"
 INCLUDE "macros.6502"
-INCLUDE "../build/gen/data.6502"
 
-SECTION Mass, org = LoadAddr, load = &FFFF0000+LoadAddr, exec = &FFFF0000+entry, filename = "MASS", guard = &7C00
-.maincode_image
-	SECTION MainCode, org = CodeOrg, guard = ScreenAddr, transform = "zx02"
-		INCLUDE "plot.6502"					; first: its hot loops' page crossings checked (SAME_PAGE)
+SECTION Mass, org = EntryOrg - (payload_end - payload_image), load = &FFFF0000+payload_image, exec = &FFFF0000+entry, filename = "MASS", guard = TitleAddr
+.payload_image
+	SECTION Payload, org = CodeOrg, guard = ScreenEnd, transform = "zx02"
+		INCLUDE "main.6502"				; (cold: before IRQ1V)
+		PADTO Irq1V
+		EQUW irq						; IRQ1V
+
+		ASSERT P% == MainVarsOrg, "MainVars is the gap after IRQ1V"
+		SKIPTO BreakEffect				; (MainVars, memory.6502)
+		EQUB 2							; *FX200: clear memory on BREAK
+
+		INCLUDE "random.6502"
+		PADTO PlotOrg					; where none of the plotter's hot loops crosses a page
+		INCLUDE "plot.6502"				; its hot loops' page crossings checked (SAME_PAGE)
 		INCLUDE "irq.6502"
-		INCLUDE "main.6502"
 		INCLUDE "background.6502"
-		INCLUDE "physics.6502"
-		INCLUDE "game.6502"
 		INCLUDE "score.6502"
 		INCLUDE "sound.6502"
-		INCLUDE "shapes.6502"
-		INCLUDE "balls.6502"
+	.lowspace							; the near and merge lists (LowSpace, memory.6502)
+		PADTO NmiOrg
+		RTI								; stray NMIs
+
+		INCLUDE "physics.6502"
+		INCLUDE "game.6502"
+		INCLUDE "balls.6502"			; (the workspace's balls, and constants: no code)
+	.code_end
+		PADTO GenBakedOrg
+		INCLUDE "../build/gen/tables.6502"
+		INCBIN "../build/gen/screen.bin"	; the screen as the game starts (assets/screen.png)
+		ASSERT P% == ScreenEnd
 	ENDSECTION
-.maincode_end
+.payload_end
 
 	INCLUDE "entry.6502"
 ENDSECTION

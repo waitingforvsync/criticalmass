@@ -1,5 +1,5 @@
-\\ balls.6502 - the balls: a structure of arrays indexed by slot (D5), the order the physics keeps them
-\\ in, and the per-size tables the physics reads.
+\\ balls.6502 - the balls: a structure of arrays indexed by slot (D5), in the workspace after the code, and
+\\ the order the physics keeps them in. (The per-size tables the physics reads are gendata.py's.)
 
 MaxBalls = 48
 MaxMerges = 16
@@ -10,11 +10,11 @@ CriticalSize = GenCriticalSize
 
 Gravity = 118							; 8.8 units a step a step: 288 units/s^2 at 25 Hz
 MergeAge = 4							; steps before a new ball can merge (the original's 10 frames at 60 Hz)
-WellLeft = WellCol * 4					; the well in units (a unit is half a pixel)
-WellRight = WallRightCol * 4
+WellLeft = 0							; the well in units, from its left edge (a unit is half a pixel)
+WellRight = WellColumns * 4
 
-SECTION Balls, org = BallsOrg, guard = BallsEnd, virtual = TRUE
-.BallXLo		SKIP MaxBalls			; 8.8 units, from the screen's left
+SECTION Workspace
+.BallXLo		SKIP MaxBalls			; 8.8 units, from the well's left (D18)
 .BallXHi		SKIP MaxBalls
 .BallYLo		SKIP MaxBalls			; and its top
 .BallYHi		SKIP MaxBalls
@@ -44,6 +44,9 @@ SECTION Balls, org = BallsOrg, guard = BallsEnd, virtual = TRUE
 .AnchorY		SKIP MaxBalls + 2
 .Order			SKIP MaxBalls			; the live slots, lowest bottom first
 .NumBalls		SKIP 1
+ENDSECTION
+
+SECTION LowSpace						; (memory.6502: before &D00, where the code leaves room)
 .NearA			SKIP MaxNear			; the pairs that touched in the first pass, for the second
 .NearB			SKIP MaxNear
 .NumNear		SKIP 1
@@ -51,58 +54,3 @@ SECTION Balls, org = BallsOrg, guard = BallsEnd, virtual = TRUE
 .MergeB			SKIP MaxMerges
 .NumMerges		SKIP 1
 ENDSECTION
-
-\\ By size: the radius in quarter units, and in 8.8; where its centre may go
-
-.RadiusQ	EQUB GenRadiusQ
-.RadiusU	EQUB (GenRadiusQ + 3) DIV 4		; in units, rounded up: sweep's quick test
-.RadiusLo	EQUB LO(GenRadiusQ * 64)
-.RadiusHi	EQUB HI(GenRadiusQ * 64)
-.LeftLo		EQUB LO(WellLeft * 256 + GenWallQ * 64)	; the walls and floor: the drawn radius
-.LeftHi		EQUB HI(WellLeft * 256 + GenWallQ * 64)
-.RightLo	EQUB LO(WellRight * 256 - GenWallQ * 64)
-.RightHi	EQUB HI(WellRight * 256 - GenWallQ * 64)
-.FloorLo	EQUB LO(FloorLine * 256 - GenWallQ * 64)
-.FloorHi	EQUB HI(FloorLine * 256 - GenWallQ * 64)
-
-\\ By 16 * size a + size b: the push's log constant on a ball of size a from one of size b (tables.py),
-\\ signed
-
-.PairCLo	EQUB LO(GenPairCTable + ExpW - GenExpWLo)	; as pointers into ExpW: a log l is at ExpW - Lo + l
-.PairCHi	EQUB HI(GenPairCTable + ExpW - GenExpWLo)
-.PairCbLo	EQUB LO(GenPairCbTable + ExpW - GenExpWLo)
-.PairCbHi	EQUB HI(GenPairCbTable + ExpW - GenExpWLo)
-.PairR		EQUB GenPairR
-.PairR2Lo	EQUB LO(GenPairR2)
-.PairR2Hi	EQUB HI(GenPairR2)
-.Times16	EQUB (0..15) * 16
-
-\\ The physics' full-page tables, each read indexed by a byte, back to back from a page so none is
-\\ crossed (and none wasted between them):
-\\ - RoundP, RoundN: a low byte's share of |d|'s rounding to quarter units, positive d and negative (~d + 33)
-\\ - L8: round(32 log2 v), clamped to 255
-\\ - H: log d = log max + H[log max - log min]
-\\ - BitLen: the bits in a byte (log16's shifts)
-\\ - Times6Lo/Hi, Times11Lo/Hi: a push that fits a signed byte, t * 6 and (t * 11) >> 1 (apply's kv, kp)
-
-FUNCTION Signed(v) = WHERE(v >= 128, v - 256, v)
-
-	ALIGN &100
-.RoundP		EQUB ((0..255) + 32) DIV 64
-.RoundN		EQUB (288 - (0..255)) DIV 64
-.L8			EQUB GenL8
-.H			EQUB GenH
-.BitLen		EQUB 0, 1, 2, 2, 3, 3, 3, 3, FULL(8, 4), FULL(16, 5), FULL(32, 6), FULL(64, 7), FULL(128, 8)
-.Times6Lo	EQUB LO(Signed(0..255) * 6)
-.Times6Hi	EQUB HI(Signed(0..255) * 6)
-.Times11Lo	EQUB LO(FLOOR(Signed(0..255) * 11 / 2))
-.Times11Hi	EQUB HI(FLOOR(Signed(0..255) * 11 / 2))
-ASSERT LO(RoundP) == 0 AND Times11Hi == RoundP + 8 * 256, "the physics' full-page tables, back to back"
-
-\\ EXP clamped, by log from GenExpWLo, read through each ball's log as a pointer (gendata.py checks it
-\\ covers every contact's index); and 32 n, and the chain's entries, for log16
-
-.ExpW		EQUB GenExpW
-.Times32Lo	EQUB LO((0..8) * 32)
-.Times32Hi	EQUB HI((0..8) * 32)
-.ChainEntry	EQUB 0, LO(log16.chain + 3 * (8 - (1..8)))

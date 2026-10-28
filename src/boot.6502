@@ -1,9 +1,26 @@
-\\ boot.6502 - !BOOT, *RUN by SHIFT-BREAK (the disc's *OPT 4,2): a title in MODE 7 while MASS loads,
-\\ then *RUN MASS. Baron assembles this file on its own.
+\\ boot.6502 - !BOOT, *RUN by SHIFT-BREAK (the disc's *OPT 4,2): the title, in MODE 2, while MASS loads
+\\ (D19), then *RUN MASS. Baron assembles this file on its own.
+\\
+\\ The title is assets/title.png (tools/screenpng.py), packed by ZX02 and unpacked to the top of memory with
+\\ the display off. As teddyboy's !BOOT, but with no splits: the CRTC is set straight to the title's size,
+\\ the ULA through OSBYTE 154 (so the OS's copy agrees: the OS's flashing toggles that copy's flash bit,
+\\ which no colour here uses), and the palette by &FE21. MASS loads under the title, which stays up until
+\\ MASS has unpacked.
+
+INCLUDE "zx02.6502"						; the compressor, as FUNCTIONs: the title's section transform
+INCLUDE "../build/gen/data.6502"		; the title's size and palette (tools/gendata.py)
 
 BootOrg = &1100
+TitleChars = GenTitleChars
+TitleRows = GenTitleRows
+TitleAddr = &8000 - TitleChars * TitleRows * 8	; the title's screen, as high as it goes
+TitleHSyncPos = 98 - (80 - TitleChars) DIV 2	; centred, as the game's screen is
+TitleVSyncPos = 35 - (32 - TitleRows) DIV 2
+VSyncPulseWidth = 2
 
 SECTION Boot, filename = "!BOOT", org = BootOrg, load = &FFFF0000+BootOrg, exec = &FFFF0000+boot_entry
+
+ZA_POOL &70..&8F						; the OS leaves these to us
 
 \\ Show the title, and *RUN MASS.
 \\
@@ -15,25 +32,72 @@ SECTION Boot, filename = "!BOOT", org = BootOrg, load = &FFFF0000+BootOrg, exec 
 
 .boot_entry
 {
-	LDA #15:LDX #0:JSR &FFF4			; flush all buffers
-	LDX #0
-.textloop
-	LDA text,X:JSR &FFEE				; OSWRCH
-	INX
-	CPX #textend - text:BNE textloop
+	ZA_ENTRY
+	LDA #15:LDX #0:JSR &FFF4			; *FX15,0: flush all buffers
+
+	\\ The display off, the CRTC set to the title's size, MODE 2 in the ULA, and the title's colours
+
+	LDA #8:STA &FE00					; CRTC: R8 first,
+	LDA #&F0:STA &FE01					; the display off
+	LDX #13
+.crtc
+	STX &FE00							; CRTC: register
+	LDA crtcvals,X:STA &FE01			; CRTC: its value
+	DEX
+	BPL crtc
+	LDA #154:LDX #&F4:JSR &FFF4			; OSBYTE 154: the ULA's control register, MODE 2
+	LDX #15
+.palette
+	LDA colours,X:STA &FE21				; video ULA: palette
+	DEX
+	BPL palette
+
+	\\ The title unpacked to its screen, then the display on
+
+	LDA #LO(packed):STA zx.src
+	LDA #HI(packed):STA zx.src+1
+	LDA #LO(TitleAddr):STA zx.dst
+	LDA #HI(TitleAddr):STA zx.dst+1
+	JSR zx.unpack
+	LDA #8:STA &FE00					; CRTC: R8,
+	LDA #&C0:STA &FE01					; the display on, no cursor
+
 	LDX #LO(command):LDY #HI(command)
 	JMP &FFF7							; OSCLI
+}
 
 .command
 	EQUS "RUN MASS", 13
 
-.text
-	EQUB 22, 7							; MODE 7
-	EQUB 23, 1, 0, 0, 0, 0, 0, 0, 0, 0	; the cursor off
-	EQUB 31, 11, 10, 141, 131, "CRITICAL MASS"
-	EQUB 31, 11, 11, 141, 131, "CRITICAL MASS"
-	EQUB 31, 15, 14, 130, "loading"
-.textend
+.crtcvals								; R0-R13
+	EQUB 127							; R0: horizontal total (2 MHz)
+	EQUB TitleChars						; R1: displayed
+	EQUB TitleHSyncPos					; R2: sync position
+	EQUB 8 + (VSyncPulseWidth << 4)		; R3: sync widths
+	EQUB 38								; R4: vertical total
+	EQUB 0								; R5: total adjust
+	EQUB TitleRows						; R6: displayed
+	EQUB TitleVSyncPos					; R7: sync position
+	EQUB &F0							; R8: no interlace, display and cursor off
+	EQUB 7								; R9: scan lines a character
+	EQUB 32								; R10: cursor start (off)
+	EQUB 7								; R11: cursor end
+	EQUB HI(TitleAddr DIV 8)			; R12: screen start, high
+	EQUB LO(TitleAddr DIV 8)			; R13: screen start, low
+
+.colours								; &FE21's writes: logical = physical
+	EQUB GenTitlePalette
+
+\\ The decompressor
+
+.zx
+{
+	INCLUDE "dzx02.6502"
 }
+
+.packed
+	SECTION TitleImage, org = TitleAddr, transform = "zx02"
+		INCBIN "../build/gen/title.bin"	; the title (assets/title.png), as the CRTC reads it
+	ENDSECTION
 
 ENDSECTION

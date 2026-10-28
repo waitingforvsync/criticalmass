@@ -22,7 +22,7 @@ from physics import Ball, One, Params, Rim, World, WellLeft, WellRight
 from render import eor_ball
 
 Scale = 2
-Crop = 36 * 2 * 2 * Scale				# the well's byte columns 0-35: 2 pixels a byte, 2 TV pixels a pixel
+Crop = 36 * 2 * 2 * Scale				# byte columns 0-35, the well and its walls: 2 pixels a byte, 2 TV pixels a pixel
 Height = 216 * Scale					# down to the floor
 Head = 16								# the labels' strip
 Every = 15								# frames between drops

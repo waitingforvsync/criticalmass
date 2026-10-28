@@ -7,7 +7,7 @@ The Python model in `tools/` is the reference for the 6502. It holds:
 
 | File | What |
 |---|---|
-| `mode2.py` | The screen's memory (&4800, 64 × 28), the pixel bits, and the palette bytes. |
+| `mode2.py` | The screen's memory (&33E8, 64 × 28, D18), the pixel bits, and the palette bytes. |
 | `shapes.py` | Ball shapes and their run tables (lead, single, full, and a mask for each run). |
 | `colours.py` | The logical codes, the palette, and each size's dither pair. |
 | `render.py` | Balls as EOR bytes, from the run tables, checked against the bitmaps. |
@@ -18,9 +18,12 @@ The Python model in `tools/` is the reference for the 6502. It holds:
 | `tune.py` | The stack test: physics settings, measured on the drawn circles (P12). |
 | `compare.py` | The same drops under several physics settings, side by side in a video. |
 | `scenario.py` | Scripted scenes (`critical`: an explosion). |
-| `font.py` | The panel's 3 × 5 font, shared with the 6502. |
-| `gendata.py` | Writes `build/gen/data.6502`: shapes, colours, logs, pair tables, boundary lists, patterns, font. |
-| `machine.py` | py65 with MASS unpacked as the loader would. |
+| `layout.py` | The screen's layout (D13, D18): the well, the panel's boxes, and where the game draws. The starting screen itself is `assets/screen.png`. |
+| `screenpng.py` | PNGs to MODE 2 bytes: `assets/screen.png` and `title.png` (`--compose` drew `screen.png`'s first version). |
+| `font.py` | The panel's 3 × 5 font. The 6502 has only the digits and GAME OVER's letters. |
+| `gendata.py` | Writes `build/gen/`: `data.6502` (constants), `tables.6502` (MASS's tables, under the screen), `made.6502` (the loader's, up to &8000), `tables.json` (every table's bytes, for the test), and `screen.bin` and `title.bin`. |
+| `machine.py` | py65 with MASS loaded and the real loader run, from after its OS calls to `main`. |
+| `test_tables.py`, `test_background.py` | Every table in memory after the loader (its own included), and the screen it unpacks, against the model. |
 | `test_plot.py`, `bench_plot.py`, `replay.py` | The plotter against the model: cases, a benchmark, a game's frames. |
 | `test_physics.py`, `frames.py` | The physics against the model, step by step, with the cost. |
 | `lockstep.py` | The whole 6502 game against the model, every frame (`--scene critical` forces an explosion). |
@@ -29,11 +32,16 @@ The Python model in `tools/` is the reference for the 6502. It holds:
 
 ## The shapes and colours
 
-- The shapes are made from the drawn radius, r(s) = 1.6 (0.8 + 2s) units. Balls collide at r(s) + 0.75
-  (P12).
+- The shapes are made from the drawn radius (D12). Sizes 1 to 11 run in equal steps of 2.56 units, from the
+  original's size 1, 1.6 (0.8 + 2) = 4.48 units, to its size 9, 30.08. The critical ball (12) is 36.48, one
+  of the original's steps past its size 10. Balls collide at r(s) + 0.75 (P12).
+  - Two of the largest touching must stay under 64 units for the collision maths. That's why the range
+    stays put and the steps got smaller.
   - For each size the generator picks whichever width and height parity fits the circle best.
-  - The sizes come out 4×8, 7×15, 10×21, 14×28, 17×34, 20×40, 23×47, 26×53, 30×60 and 33×66 (pixels ×
-    lines).
+  - The sizes come out 4×8, 7×14, 10×20, 12×24, 14×29, 17×34, 19×39, 22×45, 24×49, 27×55, 30×60 and
+    36×72 (pixels × lines).
+  - Size 3 is drawn by hand (D16): its raster, 9×19, looked like a hexagon. Its radius is the shape's,
+    10 units.
 - **The run format** has five numbers for each byte column: lead, single, full, smask and fmask.
   - The single run sets only the pixel with the longer span.
   - The full run sets both pixels, or just one in an edge column, where the other pixel is empty. That
@@ -128,10 +136,13 @@ That's O2 in `decisions.md`.
 
 ## Critical mass
 
-- Two size-9 balls merge into a size-10 ball. It shows white for 6 frames (CriticalHold) and is solid for
-  that time, then explodes.
-- One of six patterns replaces it, each 5 to 7 pieces of sizes 1 to 4. The pieces are placed largest
+- Two size-11 balls merge into a size-12 ball. It shows white for 6 frames (CriticalHold) and is solid for
+  that time, then explodes. Its pairs' R is capped at 255 quarter units, so it can overlap its neighbours
+  by up to about 4 units in that time.
+- One of eight patterns replaces it, each 5 to 7 pieces of sizes 1 to 4. The pieces are placed largest
   first without touching, cover 35% to 70% of the big ball's area, and fly outwards and upwards.
+  - The patterns are stored a byte a number: offsets in half units, velocities in eighths of a unit a
+    step.
 - Score: each merge scores its size. An explosion scores 100. Merges within 3 s of an explosion are a
   chain, and score their size × (1 + chain count).
 - `scenario.py critical` shows one.

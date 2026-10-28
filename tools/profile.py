@@ -9,14 +9,14 @@ import argparse
 import bisect
 import collections
 
-from machine import Machine, Sentinel
+from machine import Machine, Sentinel, StackTop
 from test_physics import game_scenes, put
 
 
 def labels(m):
 	"""Every label in main RAM's code, by address: (address, name)."""
 	out = []
-	end = m.sym["CodeOrg"] + m.sym["maincode_end"] - m.sym["maincode_image"]
+	end = m.sym["code_end"]
 	for name, addr in m.sym.items():
 		if m.sym["CodeOrg"] <= addr < end and not name[0].isupper():
 			out.append((addr, name))
@@ -28,10 +28,10 @@ def profile(m, routine, counts):
 	lab = labels(m)
 	addrs = [a for a, _ in lab]
 	mpu = m.mpu
-	mpu.sp = 0xFD
 	ret = Sentinel - 1
-	mpu.memory[0x1FF] = ret >> 8
-	mpu.memory[0x1FE] = ret & 0xFF
+	mpu.memory[StackTop] = ret >> 8
+	mpu.memory[StackTop - 1] = ret & 0xFF
+	mpu.sp = (StackTop - 2) & 0xFF
 	mpu.pc = m[routine]
 	while mpu.pc != Sentinel:
 		pc = mpu.pc
@@ -49,7 +49,6 @@ def main():
 	ap.add_argument("--skip", type=int, default=300)
 	args = ap.parse_args()
 	m = Machine()
-	m.call("make_tables")
 	counts = collections.Counter()
 	for balls in game_scenes(args.scenes, args.seed, every=100, skip=args.skip):
 		for slot, b in enumerate(balls):

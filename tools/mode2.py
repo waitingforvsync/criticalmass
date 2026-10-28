@@ -1,4 +1,4 @@
-"""MODE 2 as Critical Mass sets it up: 64 characters by 28 rows, the screen at &4800.
+"""MODE 2 as Critical Mass sets it up: 64 characters by 28 rows, the screen at &33E8 (D18).
 
 The screen model is the real memory layout. Byte column c, line l is at
 ScreenBase + (l >> 3) * RowBytes + c * 8 + (l & 7). A byte holds two pixels: the left pixel's colour bits
@@ -7,7 +7,7 @@ ScreenBase + (l >> 3) * RowBytes + c * 8 + (l & 7). A byte holds two pixels: the
 
 from PIL import Image
 
-ScreenBase = 0x4800
+ScreenBase = 0x33E8						# so the well's first byte (column 3) is on a page, an even one (D18)
 Columns = 64							# byte columns (characters) across
 Rows = 28
 RowBytes = Columns * 8					# 512
@@ -54,7 +54,7 @@ def address(col, line):
 
 
 class Screen:
-	"""The screen's memory, &4800 to &7FFF."""
+	"""The screen's memory, &33E8 to &6BE7."""
 
 	def __init__(self):
 		self.mem = bytearray(ScreenSize)

@@ -1,7 +1,8 @@
-\\ score.6502 - the panel's text: its labels, and the score and the best, in a 3 x 5 font with each row
-\\ doubled (font.py's), by plain stores: the panel's never EORed.
+\\ score.6502 - the panel's text the game draws: the score and the best, and GAME OVER, in a 3 x 5 font
+\\ with each row doubled (font.py's: only the glyphs these need), by plain stores: the panel's never
+\\ EORed. The labels are in the screen the loader unpacks.
 
-LabelCol = GenLabelCol
+LabelCol = GenLabelCol - WellCol			; (columns from the well's first, D18)
 SpaceGlyph = GenSpaceGlyph
 
 SECTION MainVars
@@ -14,7 +15,7 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 \\
 \\ Inputs:
 \\     A: the glyph (font.py's Order)
-\\     X: the cell's left byte column
+\\     X: the cell's left byte column, from the well's first (D18)
 \\     Y: its top line
 \\     textcolour: its colour
 \\
@@ -46,11 +47,12 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 	RTS
 }
 
-\\ Draw a label: glyph numbers, 255 ending them, from LabelCol across.
+\\ Draw a label: glyph numbers, 255 ending them.
 \\
 \\ Inputs:
 \\     A, X: the label's address, low and high bytes
 \\     Y: its top line
+\\     draw_label.col: its first cell's byte column
 \\
 \\ Outputs:
 \\     A, X, Y: corrupted
@@ -58,11 +60,10 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 .draw_label
 {
 	ZA_AUTO2 text						; local: the label
-	ZA_AUTO1 i, col, line				; local: the glyph; its cell's column; the line
+	ZA_AUTO1 i, col, line				; local: the glyph; its cell's column (an input); the line
 
 	STA text:STX text+1
 	STY line
-	LDA #LabelCol:STA col
 	LDA #0:STA i
 .loop
 	LDY i
@@ -76,32 +77,20 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 	RTS
 }
 
-\\ Draw the panel's labels (draw_background's part).
+\\ Draw GAME OVER in the middle of the well, in a black box (a new game clears the well).
 \\
-\\ Outputs:
-\\     A, X, Y: corrupted
-
-.draw_labels
-{
-	LDA #GenTitleColour:STA textcolour
-	LDA #LO(TitleText):LDX #HI(TitleText):LDY #GenTitleLine:JSR draw_label
-	LDA #LO(MassText):LDX #HI(MassText):LDY #GenMassLine:JSR draw_label
-	LDA #GenTextColour:STA textcolour
-	LDA #LO(NextText):LDX #HI(NextText):LDY #GenNextLabel:JSR draw_label
-	LDA #LO(ScoreText):LDX #HI(ScoreText):LDY #GenScoreLabel:JSR draw_label
-	LDA #LO(BestText):LDX #HI(BestText):LDY #GenBestLabel:JMP draw_label
-}
-
-\\ Draw GAME OVER and RETURN (to play again) in the panel.
+\\ Inputs:
+\\     none
 \\
 \\ Outputs:
 \\     A, X, Y: corrupted
 
 .draw_game_over
 {
+	LDA #GenOverBoxRow:LDX #GenOverBoxRows:LDY #GenOverBoxCol - WellCol:JSR fill_box
 	LDA #GenTextColour:STA textcolour
-	LDA #LO(OverText):LDX #HI(OverText):LDY #GenOverLine:JSR draw_label
-	LDA #LO(ReturnText):LDX #HI(ReturnText):LDY #GenReturnLine:JMP draw_label
+	LDA #GenOverCol - WellCol:STA draw_label.col
+	LDA #LO(OverText):LDX #HI(OverText):LDY #GenOverLine:JMP draw_label
 }
 
 \\ Draw the score and the best, if the score's changed since they were drawn.
@@ -167,13 +156,3 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 	LDA digit:CMP #6:BNE loop
 	RTS
 }
-
-.GlyphL		EQUB GenGlyphL
-.GlyphR		EQUB GenGlyphR
-.NextText	EQUB GenNextText
-.ScoreText	EQUB GenScoreText
-.BestText	EQUB GenBestText
-.OverText	EQUB GenOverText
-.ReturnText	EQUB GenReturnText
-.TitleText	EQUB GenTitleText
-.MassText	EQUB GenMassText

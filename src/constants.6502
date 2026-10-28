@@ -1,27 +1,32 @@
 \\ constants.6502 - the screen's geometry and the well's, in the model's units (docs/model.md), and the
 \\ palette's codes (D10).
 
-\\ The screen: MODE 2, 64 characters by 28 rows, ending at &8000 (P1)
+\\ The screen: MODE 2, 64 characters by 28 rows (P1), at &33E8 so the well's first byte is on a page, an
+\\ even one (D18): each row of the well is a page, and the 6502 draws by columns from the well's first
 
 ScreenColumns = 64						; byte columns: 128 MODE 2 pixels
 ScreenRows = 28
 RowBytes = ScreenColumns * 8			; 512
 ScreenBytes = RowBytes * ScreenRows		; &3800
-ScreenAddr = &8000 - ScreenBytes		; &4800
+ScreenAddr = GenScreenAddr
+ScreenEnd = GenScreenEnd
+WellAddr = GenWellAddr
+ASSERT ScreenEnd == ScreenAddr + ScreenBytes AND WellAddr MOD 512 == 0
 ScreenHSyncPos = 98 - (80 - ScreenColumns) DIV 2
 ScreenVSyncPos = 35 - (32 - ScreenRows) DIV 2
 VSyncPulseWidth = 2
 
-\\ The well: byte columns 2 to 33 inside, the walls at 1 and 34, the floor the bottom row. A unit is a
-\\ scanline, half a MODE 2 pixel (P2): x counts from the screen's left edge, y from its top.
+\\ The layout (layout.py, D13): the checker's margin, then the left wall at column 2, the well's 32 byte
+\\ columns inside, the right wall, and the panel's boxes in the checker beyond. A unit is a scanline, half a
+\\ MODE 2 pixel (P2): x counts from the well's left edge (D18), y from the screen's top.
 
-WallLeftCol = 1
-WellCol = 2
-WellColumns = 32
-WallRightCol = WellCol + WellColumns
-FloorRow = 27
-FloorLine = FloorRow * 8
-RimLine = 32							; a ball poking above this, touching another, is failing
+WallLeftCol = GenWallLeftCol
+WellCol = GenWellCol
+WellColumns = GenWellCols
+WallRightCol = GenWallRightCol
+FloorRow = GenFloorRow
+FloorLine = GenFloorLine
+RimLine = GenRimLine					; a ball poking above this, touching another, is failing
 
 \\ The ball codes: the odd-parity logical colours (D10), and the physical colours (colours.py)
 

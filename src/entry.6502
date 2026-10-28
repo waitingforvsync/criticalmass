@@ -1,15 +1,23 @@
-\\ entry.6502 - the loader, MASS's entry point (teddyboy's and exhale's): takes the machine over, unpacks
-\\ main RAM's code to where it runs, makes the tables, sets the hardware up and starts the game.
+\\ entry.6502 - the loader, MASS's entry point (teddyboy's and exhale's): takes the machine over, unpacks the
+\\ payload (the code, its tables and the screen, contiguous from &140) in place, makes the tables MASS
+\\ doesn't hold, and starts the game (D14, D18).
+\\
+\\ MASS loads with its packed payload ending PayloadSlack bytes past the screen's end, and the loader after
+\\ it, in the workspace: unpacking forward from &140 to the screen's end, the reading stays ahead of the
+\\ writing. !BOOT's title stays up meanwhile (its memory's above all of it); then the display goes off, the
+\\ CRTC's set for the game, and the loader's tables are made over the title.
 
-\\ MASS loads into the screen's memory, above all of main RAM's code, so unpacking it never reaches the
-\\ packed image or the loader. main clears the screen, the loader with it.
+ASSERT payload_end == EntryOrg, "the packed payload ends where the loader starts"
+ASSERT payload_image >= &1900, "MASS loads above the filing system's workspace"
+ASSERT entry_end <= GenMadeOrg, "the loader's tables don't reach the loader"
+ASSERT HI(GenMadeOrg) > HI(entry_end - 1), "make_tables' zeroing (whole pages) doesn't reach the loader"
+ASSERT payload_image + ((entry_end - payload_image + 255) AND &FF00) <= TitleAddr, "MASS's last sector stays under the title"
 
-ASSERT maincode_image >= ScreenAddr, "the packed image lies above where it unpacks to"
-
-\\ Take the machine over, unpack the code, make the tables, set the hardware up, and run the game.
+\\ Take the machine over, unpack the payload, set the screen up for the game, make the tables, set the
+\\ hardware up, and run the game.
 \\
 \\ Inputs:
-\\     none: *RUN by !BOOT
+\\     none: *RUN by !BOOT, its title showing
 \\
 \\ Outputs:
 \\     none: it goes on to main
@@ -32,40 +40,39 @@ ASSERT maincode_image >= ScreenAddr, "the packed image lies above where it unpac
 	LDA #16:LDX #0:JSR &FFF4			; Disable ADC
 	LDA #143:LDX #12:LDY #255:JSR &FFF4	; claim NMIs
 	LDA #140:LDX #0:JSR &FFF4			; select tape filing system for safety
-	LDA #19:JSR &FFF4					; wait for vsync before changing CRTC
+	LDA #19:JSR &FFF4
 
 	SEI
-	LDX #&FF:TXS
-	LDA #&40:STA NmiOrg					; RTI, for stray NMIs
-
-	\\ Set CRTC values, the display off
+	\\ At a vsync, the display off (the title's gone from there on) and the CRTC set for the game; the
+	\\ ULA MODE 2, as for the title, and every colour black until main's palette
 
 	LDX #13
 .setcrtcloop
-	STX &FE00
-	LDA crtcregs,X:STA &FE01
+	STX &FE00							; CRTC: register
+	LDA crtcregs,X:STA &FE01			; CRTC: its value
 	DEX
 	BPL setcrtcloop
-
-	\\ Set Video ULA MODE 2, every colour black until the screen's drawn
-
-	LDA #&F4:STA &FE20
+	LDA #&F4:STA &FE20					; video ULA: control, MODE 2
 	LDX #15
 .setpalloop
 	TXA:ASL A:ASL A:ASL A:ASL A:ORA #7
-	STA &FE21
+	STA &FE21							; video ULA: palette, black
 	DEX
 	BPL setpalloop
 
-	\\ Unpack main RAM's code to where it runs
+.take_over								; (tools/machine.py starts here: no OS calls from here on)
+	LDX #LO(StackTop):TXS
+	LDA #&40:STA NmiOrg					; RTI, for stray NMIs
 
-	LDA #LO(maincode_image):STA zx.src
-	LDA #HI(maincode_image):STA zx.src+1
+	\\ Unpack the payload: the code (IRQ1V with it), its tables and the screen
+
+	LDA #LO(payload_image):STA zx.src
+	LDA #HI(payload_image):STA zx.src+1
 	LDA #LO(CodeOrg):STA zx.dst
 	LDA #HI(CodeOrg):STA zx.dst+1
 	JSR zx.unpack
 
-	\\ The tables
+	\\ The loader's tables, over the title
 
 	JSR make_tables
 
@@ -79,12 +86,9 @@ ASSERT maincode_image >= ScreenAddr, "the packed image lies above where it unpac
 	LDX #&03:STX &FE40					; keyboard autoscan off
 	INX:STX &FE4C						; default PCR
 
-	\\ The interrupt: vsync only
+	\\ The interrupt: vsync only (IRQ1V is the code's own)
 
-	LDA #LO(irq):STA &204
-	LDA #HI(irq):STA &205
 	LDA #0:STA vsyncs
-
 	LDA #2:STA &FE4D					; clear CA1, and enable it alone
 	LDA #&82:STA &FE4E					; system VIA: IER, CA1
 	CLI
@@ -107,35 +111,130 @@ ASSERT maincode_image >= ScreenAddr, "the packed image lies above where it unpac
 	EQUB HI(ScreenAddr DIV 8)			; CRTC R12 - screen start address, hi
 	EQUB LO(ScreenAddr DIV 8)			; CRTC R13 - screen start address, lo
 
-
-\\ Make the tables the loader makes: the squares.
+\\ Make the tables MASS doesn't hold (gendata.py's made_part: made.6502, from GenMadeOrg up to &8000),
+\\ smaller made than packed. tools/test_tables.py checks every table against the model's.
 \\
 \\ Inputs:
-\\     none
+\\     RadiusQ, ExpW: unpacked
 \\
 \\ Outputs:
-\\     SqLo, SqHi: v * v for v in 0..255
-\\     A, X: corrupted
+\\     SqLo, SqHi; Times6Lo/Hi, Times11Lo/Hi; RowHi; PairR, PairR2Lo/Hi; PairCLo/Hi, PairCbLo/Hi
+\\     A, X, Y: corrupted
+
+PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less its PairCMatrix entry
 
 .make_tables
 {
-	ZA_AUTO2 square						; local: v * v so far
+	ZA_AUTO2 sq, t6, t11				; local: v * v, 6 t, 11 t as they count up
+	ZA_AUTO1 r, ia, am1, k, ib, b		; local: RadiusQ of b; 12 (a - 1); a - 1; a's C and b's; b's left
 
-	LDX #0:STX square:STX square+1
-.sqloop
-	LDA square:STA SqLo,X
-	LDA square+1:STA SqHi,X
-	TXA:SEC:ADC square:STA square		; + v + 1
-	BCC P%+4:INC square+1
-	TXA:CLC:ADC square:STA square		; + v: (v + 1)^2 = v^2 + 2v + 1
-	BCC P%+4:INC square+1
-	INX:BNE sqloop
+	\\ zeros first, from the made tables' page to &8000 (the title's there): the pair tables' entries for
+	\\ no pair (no ball, a size past the last, or two critical balls: R = 0) stay 0
+
+	LDA #0:STA sq:TAY
+	LDX #HI(GenMadeOrg)
+.zeros
+	STX sq+1
+.zero
+	STA (sq),Y
+	INY:BNE zero
+	INX:BPL zeros						; (to &7FFF)
+
+	\\ the squares: (v + 1)^2 = v^2 + 2v + 1
+
+	LDX #0:STX sq:STX sq+1
+.squares
+	LDA sq:STA SqLo,X
+	LDA sq+1:STA SqHi,X
+	TXA:SEC:ADC sq:STA sq				; + v + 1
+	BCC P%+4:INC sq+1
+	TXA:CLC:ADC sq:STA sq				; + v
+	BCC P%+4:INC sq+1
+	INX:BNE squares
+
+	\\ t * 6 and (t * 11) >> 1 for a signed byte t: from 6 t and 11 t as t counts up, less 6 * 256, and
+	\\ 11 * 256 / 2, once t is negative
+
+	STX t6:STX t6+1:STX t11:STX t11+1	; (X = 0)
+.times
+	LDA t6:STA Times6Lo,X
+	LDA t6+1
+	CPX #128:BCC P%+4:SBC #6			; (C set)
+	STA Times6Hi,X
+	LDA t11+1:LSR A:TAY
+	LDA t11:ROR A						; 11 t >> 1
+	CPX #128:BCC t11pos
+	SBC #LO(11 * 128):PHA				; (C set)
+	TYA:SBC #HI(11 * 128):TAY
+	PLA
+.t11pos
+	STA Times11Lo,X
+	TYA:STA Times11Hi,X
+	CLC:LDA t6:ADC #6:STA t6
+	BCC P%+4:INC t6+1
+	CLC:LDA t11:ADC #11:STA t11
+	BCC P%+4:INC t11+1
+	INX:BNE times
+
+	\\ each line's row's high byte, in the well (D18)
+
+	LDX #ScreenRows * 8 - 1
+.rows
+	TXA:LSR A:LSR A:AND #&FE			; (line >> 3) * 2
+	CLC:ADC #HI(WellAddr):STA RowHi,X
+	DEX:CPX #&FF:BNE rows
+
+	\\ each pair's R, at most 255 (none for two critical balls), and R^2
+
+	LDX #CriticalSize * 17				; 16 a + b: two critical balls first, then down
+.pairs
+	CPX #CriticalSize * 17:BEQ nextpair
+	TXA:AND #15:BEQ nextpair			; b: 0 or past the sizes, no pair
+	CMP #CriticalSize + 1:BCS nextpair
+	TAY:LDA RadiusQ,Y:STA r
+	TXA:LSR A:LSR A:LSR A:LSR A:TAY		; a
+	LDA RadiusQ,Y:CLC:ADC r
+	BCC P%+4:LDA #255
+	STA PairR,X
+	TAY:LDA SqLo,Y:STA PairR2Lo,X
+	LDA SqHi,Y:STA PairR2Hi,X
+.nextpair
+	DEX:CPX #16:BCS pairs
+
+	\\ each pair's pointers into ExpW, from C (PairCMatrix: a row by a, b across), on a from b and on b
+	\\ from a
+
+	LDA #0:STA ia:STA am1
+	LDX #16								; 16 a, b = 0
+.arow
+	LDA ia:STA k
+	LDA am1:STA ib
+	LDA #CriticalSize:STA b
+.bcol
+	INX									; 16 a + b
+	LDY k:LDA PairCMatrix,Y
+	CLC:ADC #LO(PairCBase):STA PairCLo,X
+	LDA #HI(PairCBase):ADC #0:STA PairCHi,X
+	LDY ib:LDA PairCMatrix,Y
+	CLC:ADC #LO(PairCBase):STA PairCbLo,X
+	LDA #HI(PairCBase):ADC #0:STA PairCbHi,X
+	INC k
+	LDA ib:CLC:ADC #CriticalSize:STA ib
+	DEC b:BNE bcol
+	TXA:CLC:ADC #16 - CriticalSize:TAX	; the next a, b = 0
+	LDA ia:CLC:ADC #CriticalSize:STA ia
+	INC am1
+	CPX #(CriticalSize + 1) * 16:BCC arow
 	RTS
 }
 
-\\ The decompressor (Baron's example, dmsc's ZX02), for main RAM's code
+.PairCMatrix
+	EQUB GenPairC						; C[a][b] - GenPairCMin, by 12 (a - 1) + b - 1
+
+\\ The decompressor (Baron's example, dmsc's ZX02), for the payload
 
 .zx
 {
 	INCLUDE "dzx02.6502"
 }
+.entry_end

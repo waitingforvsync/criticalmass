@@ -12,9 +12,10 @@ from physics import Ball, Floor, One, Params, Rim, Stats, WellLeft, WellRight, W
 from render import ball_bytes
 from shapes import CriticalSize, make_shapes, physics_radius
 from tables import WQ
-from font import BestLine, LabelCol, ScoreLine, draw_text, score_text
+from font import draw_text, score_text
+from layout import BestLine, LabelCol, NextX, NextY, ScoreLine
 
-DropSizes = (1, 2, 3, 4)
+DropSizes = (1, 2, 3, 4, 5)			# sizes 1 to 5 now span what 1 to 4 did before 12 sizes
 PatternCount = 8
 DropCooldown = 8						# the original's 20 frames
 FailSteps = 50							# the original's 120 frames
@@ -23,7 +24,6 @@ HoldWait = 50							# frames the held ball waits at most for the last drop to fa
 CriticalBonus = 100
 ChainSteps = 75							# merges this soon after an explosion are a chain
 MaxBalls = 48
-NextX, NextY = 2 * 95, 64				# the next ball's centre in the panel, units: under NEXT
 DropperSpeed = round(7.68 * One)		# 8.8 units a frame: the original's 2 px a frame
 SlowSpeed = round(1.152 * One)			# with the slow key: the original's 0.3 px a frame
 
@@ -49,9 +49,9 @@ class Rng:
 @dataclass
 class Piece:
 	size: int
-	dx: int								# 8.8 units from the critical ball's centre
+	dx: int								# 8.8 units from the critical ball's centre, in half units (PieceDX)
 	dy: int
-	vx: int								# 8.8 units a 25 Hz frame
+	vx: int								# 8.8 units a 25 Hz frame, in eighths (PieceVX): each fits a byte
 	vy: int
 
 
@@ -69,12 +69,12 @@ def make_patterns(count=PatternCount, seed=7):
 			r = physics_radius(s)
 			for _ in range(400):
 				a = rnd.uniform(0, 2 * math.pi)
-				d = rnd.uniform(0, R - r)
-				x, y = d * math.cos(a), d * math.sin(a)
+				d = rnd.uniform(0, R - r - 0.5)
+				x, y = round(2 * d * math.cos(a)) / 2, round(2 * d * math.sin(a)) / 2
 				if all(math.hypot(x - p.dx / One, y - p.dy / One) >= r + physics_radius(p.size) + 1 for p in pieces):
 					speed = 1.5 + 4.0 * d / R
-					pieces.append(Piece(s, round(x * One), round(y * One), round(speed * math.cos(a) * One),
-										round((speed * math.sin(a) - 3.0) * One)))
+					pieces.append(Piece(s, round(x * One), round(y * One), round(8 * speed * math.cos(a)) * 32,
+										round(8 * (speed * math.sin(a) - 3.0)) * 32))
 					break
 		area = sum(math.pi * physics_radius(p.size) ** 2 for p in pieces)
 		if len(pieces) == len(mix) and 0.35 * big <= area <= 0.7 * big:
@@ -95,6 +95,8 @@ class Frame:
 class Game:
 	def __init__(self, seed=1, params=None, mode="int", hyst_x=2, hyst_y=2):
 		self.rnd = Rng(seed * 7919 + 1)
+		self.via_rnd = random.Random(seed)		# the VIA's T1, for runs of the model alone
+		self.via = 0
 		self.world = World(params or Params(), mode)
 		self.shapes = make_shapes()
 		self.patterns = make_patterns()
@@ -126,10 +128,16 @@ class Game:
 	# --- the player's side ---
 
 	def drop_size(self):
-		return (self.rnd.byte() & 3) + 1
+		"""1 to 5, evenly: a byte's low 3 bits, again while they're 5 or more."""
+		while True:
+			v = self.rnd.byte() & 7
+			if v < len(DropSizes):
+				return v + 1
 
-	def keys(self, keys):
-		"""A frame's keys: move the dropper, and drop."""
+	def keys(self, keys, via=None):
+		"""A frame's keys: move the dropper, and drop. via: the system VIA's T1 low byte as the 6502 reads it
+		(a drop's random fraction); a run of the model alone makes its own."""
+		self.via = self.via_rnd.randrange(256) if via is None else via
 		speed = SlowSpeed if keys & KeySlow else DropperSpeed
 		if keys & KeyLeft:
 			self.dropper_x -= speed
@@ -165,7 +173,8 @@ class Game:
 	def drop(self):
 		if self.cooldown > 0 or self.held_grow < self.held or len(self.world.order) >= MaxBalls - 10:
 			return False
-		x = self.dropper_x + (self.rnd.byte() & 15) - 8	# the original's +-0.05 px of jitter
+		v = self.rnd.byte() ^ self.via		# a random fraction, -0.5 to 0.5 units, so drops at one place
+		x = self.dropper_x + v - (v & 0x80) * 2	# don't stack exactly balanced (the VIA's T1 and the LFSR)
 		b = Ball(self.held, x, self.held_y(self.held), age=255)
 		self.world.add(b)
 		self.last_drop = b

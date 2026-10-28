@@ -1,72 +1,67 @@
-\\ background.6502 - the screen's static parts: the walls, the rim's marks and the floor, as plain
-\\ stores, outside the well, so never EORed (model.py's background).
+\\ background.6502 - the screen's parts the game changes outside the plotter: the well cleared for a new
+\\ game (GAME OVER's box with it), and black boxes (layout.py's). The rest of the screen is only ever the
+\\ loader's (the packed screen it unpacks): plain stores, never EORed.
 
-WallEven = Mode2Byte(CodeB, CodeC)		; azure, the checkerboard anchored as the balls' are
-WallOdd = Mode2Byte(CodeC, CodeB)
-RimLeft = Mode2Byte(0, CodeW)			; a white notch on each wall's inner pixel, two lines deep
-RimRight = Mode2Byte(CodeW, 0)
+NextBallRow = GenNextBoxRow + 2			; the next ball's part of its box: under NEXT, to the box's end
+NextBallRows = GenNextBoxRows - 2
 
-FUNCTION LineAddr(col, line) = ScreenAddr + (line DIV 8) * RowBytes + col * 8 + (line AND 7)
-
-\\ Draw the walls, the rim's marks and the floor onto a black screen. It runs once, so it's plain.
+\\ The screen for a new game: the well cleared (GAME OVER with it), and the next ball's box (the score's
+\\ redrawn with the game's first frame).
 \\
 \\ Inputs:
-\\     none: the screen black
+\\     none
 \\
 \\ Outputs:
 \\     A, X, Y: corrupted
 
-.draw_background
+.new_screen
 {
-	\\ the walls: both columns, every row
+	ZA_AUTO2 ptr						; local: the row's first byte in the well
 
-	ZA_AUTO2 left, right				; local: the walls' bytes in this row
+	LDA #LO(WellAddr):STA ptr
+	LDA #HI(WellAddr):STA ptr+1
+	LDX #FloorRow
+.row
+	LDA #0:TAY
+.loop
+	STA (ptr),Y							; the well's 32 byte columns: 256 bytes on from its first
+	INY:BNE loop
+	INC ptr+1:INC ptr+1
+	DEX:BNE row
+	ASSERT WellColumns * 8 == 256 AND RowBytes == 512, "a row of the well is 256 bytes, of a row's 512"
 
-	LDA #LO(LineAddr(WallLeftCol, 0)):STA left
-	LDA #LO(LineAddr(WallRightCol, 0)):STA right
-	LDA #HI(LineAddr(WallLeftCol, 0)):STA left+1
-	LDA #HI(LineAddr(WallRightCol, 0)):STA right+1
-	LDX #ScreenRows
-.wallrow
-	LDY #7
-.wallline
-	TYA:LSR A							; C: the line's parity (each row starts on an even line)
-	LDA #WallEven
-	BCC wallput
-	LDA #WallOdd
-.wallput
-	STA (left),Y:STA (right),Y
-	DEY:BPL wallline
-	CLC:LDA left+1:ADC #HI(RowBytes):STA left+1
-	CLC:LDA right+1:ADC #HI(RowBytes):STA right+1
-	DEX:BNE wallrow
-	ASSERT LO(RowBytes) == 0, "a row is whole pages"
+	LDA #NextBallRow:LDX #NextBallRows:LDY #GenBoxCol - WellCol
+	ASSERT P% == fill_box, "new_screen falls through into fill_box"
+}
 
-	\\ the rim's marks
+\\ Black out a box GenBoxCols byte columns wide, whole rows deep.
+\\
+\\ Inputs:
+\\     A: the first row
+\\     X: how many
+\\     Y: the first byte column, from the well's first (D18)
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
 
-	LDA #RimLeft:STA LineAddr(WallLeftCol, RimLine - 1):STA LineAddr(WallLeftCol, RimLine)
-	LDA #RimRight:STA LineAddr(WallRightCol, RimLine - 1):STA LineAddr(WallRightCol, RimLine)
+.fill_box
+{
+	ZA_AUTO2 ptr						; local: the row's box
+	ZA_AUTO1 row, rows, colhi			; local: the row; rows left; the column's offset's high byte
 
-	\\ the floor: its row from the left wall to the right, one run of bytes, a line's parity its
-	\\ offset's
-
-	FloorBytes = (WallRightCol + 1 - WallLeftCol) * 8
-	FloorStart = LineAddr(WallLeftCol, FloorLine)
-	LDX #0
-.floorloop
-	LDA #WallEven:STA FloorStart,X
-	LDA #WallOdd:STA FloorStart+1,X
-	INX:INX
-	BNE floorloop						; the first 256, then the rest
-	ASSERT FloorBytes > 256 AND FloorBytes < 512, "the floor: one page and a part"
-	LDX #0
-.floorrest
-	LDA #WallEven:STA FloorStart+256,X
-	LDA #WallOdd:STA FloorStart+257,X
-	INX:INX
-	CPX #FloorBytes-256:BNE floorrest
-
-	\\ the panel's labels
-
-	JMP draw_labels
+	STA row:STX rows
+	TYA:ASL A:ASL A:ASL A:STA ptr		; column * 8
+	TYA:LSR A:LSR A:LSR A:LSR A:LSR A:STA colhi
+.rowloop
+	ASSERT RowBytes == 512, "a row is two pages"
+	LDA row:ASL A:ADC colhi				; (C clear: rows are under 128)
+	ADC #HI(WellAddr):STA ptr+1
+	LDA #0
+	LDY #GenBoxCols * 8 - 1
+.byte
+	STA (ptr),Y
+	DEY:CPY #&FF:BNE byte
+	INC row
+	DEC rows:BNE rowloop
+	RTS
 }

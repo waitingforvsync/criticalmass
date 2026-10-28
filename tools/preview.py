@@ -1,4 +1,4 @@
-"""Preview the shapes and colours: every size at both parities, and a mock well full of balls.
+"""Preview the shapes and colours: every size (check_runs checks both parities), and a mock well full of balls.
 
 	.venv/bin/python tools/preview.py --out build/model
 """
@@ -25,14 +25,11 @@ def sizes_sheet(shapes):
 	scr = Screen()
 	x, y, tallest = 1, 2, 0
 	for s, sh in shapes.items():
-		if x + sh.width * 2 + 3 > 128:
+		if x + sh.width + 2 > 128:
 			x, y, tallest = 1, y + tallest + 3, 0
 		tallest = max(tallest, sh.height)
 		eor_ball(scr, sh, x, y, s)
-		x2 = x + sh.width + 1
-		x2 += 1 if (x2 - x) % 2 == 0 else 0
-		eor_ball(scr, sh, x2, y, s)			# the other parity
-		x += sh.width * 2 + 4
+		x += sh.width + 3
 	return scr
 
 
@@ -64,7 +61,7 @@ def mock_well(shapes, seed=3):
 			x, y = best
 			placed.append((x, y, r))
 			sh = shapes[s]
-			px = 4 + round((x - sh.width) / 2)
+			px = round((x - sh.width) / 2)		# from the well's left (render.py adds its column)
 			line = round(y - sh.height / 2)
 			eor_ball(scr, sh, px, line, s)
 	return scr

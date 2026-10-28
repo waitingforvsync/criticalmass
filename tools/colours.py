@@ -30,9 +30,11 @@ SizeColours = {
 	5: (B, C),							# azure
 	6: (R, Y),							# orange
 	7: (M, W),							# pink
-	8: (G, C),							# sea green
-	9: (C, P),							# ice, pulsing: one merge from critical mass
-	10: (W, W),							# critical: white, then it explodes
+	8: (G, G),							# green
+	9: (M, M),							# magenta
+	10: (G, C),							# sea green
+	11: (C, P),							# ice, pulsing: one merge from critical mass
+	12: (W, W),							# critical: white, then it explodes
 }
 
 

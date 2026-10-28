@@ -1,11 +1,13 @@
 """Drawing balls into the screen model as the 6502's plotter will: by EOR, from the run tables.
 
-A ball is drawn at (px, line): its shape's top-left pixel, in screen pixels and lines. Drawing it again in
+A ball is drawn at (px, line): its shape's top-left pixel, in pixels from the well's left edge (D18), and
+lines. Drawing it again in
 the same place takes it away. Moving it is drawing the old and the new once each; the plotter does both
 in one pass and skips the bytes where they agree, which `delta_bytes` counts.
 """
 
 from colours import colour_bytes
+from layout import WellCol
 from mode2 import Columns, Lines
 
 
@@ -13,7 +15,7 @@ def ball_bytes(shape, px, line, size):
 	"""{(col, line): byte} for a ball, built from its run table."""
 	out = {}
 	p = px & 1
-	col0 = px >> 1
+	col0 = WellCol + (px >> 1)
 	even, odd = colour_bytes(size)
 	h = shape.height
 	for k, (lead, single, full, smask, fmask) in enumerate(shape.runs[p]):
@@ -34,7 +36,7 @@ def ball_bytes_from_pixels(shape, px, line, size):
 	a, b = SizeColours[size]
 	out = {}
 	for i, j in shape.pixels():
-		x, y = px + i, line + j
+		x, y = 2 * WellCol + px + i, line + j
 		code = a if (x + y) % 2 == 0 else b
 		bits = left_bits(code) if x % 2 == 0 else right_bits(code)
 		key = (x >> 1, y)
