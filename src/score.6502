@@ -42,7 +42,7 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 	TYA:CLC:ADC #8:TAY					; the right byte column: 8 on
 	LDA GlyphR,X:AND textcolour:STA (ptr),Y
 	INC line
-	LDA n:LSR A:BCC P%+4:INC g			; a row a line pair: the next after an odd count left
+	LDA n:LSR A:BCC @+:INC g:.@			; a row a line pair: the next after an odd count left
 	DEC n:BNE loop
 	RTS
 }

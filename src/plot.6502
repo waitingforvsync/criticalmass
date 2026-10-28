@@ -151,13 +151,13 @@ ZA_AUTO2 eorptr							; eor_up's: the row's byte in the column
 	\\ the columns either covers, and each ball's place in its table at the first; too far apart for
 	\\ the tables' padding (PixPad empty columns either side), the old away and the new in
 
-	LDA pxa:CMP pxb:BCC P%+4:LDA pxb
+	LDA pxa:CMP pxb:BCC @+:LDA pxb:.@
 	STA xmin
 	LDX shapea
 	LDA pxa:CLC:ADC Widths,X:STA xmax
 	LDX shapeb
 	LDA pxb:CLC:ADC Widths,X
-	CMP xmax:BCC P%+4:STA xmax
+	CMP xmax:BCC @+:STA xmax:.@
 
 	LDX shapea
 	LDA pxa:SEC:SBC xmin				; how far in from xmin a's first column is
@@ -334,7 +334,7 @@ ZA_AUTO2 eorptr							; eor_up's: the row's byte in the column
 	\\ the next byte column
 
 	LDA eorptr:CLC:ADC #8:STA eorptr
-	BCC P%+4:INC colhi
+	BCC @+:INC colhi:.@
 	DEC npix:BEQ done
 	JMP leftpixel
 .done
@@ -405,9 +405,9 @@ ZA_AUTO2 eorptr							; eor_up's: the row's byte in the column
 .nosingle2
 
 	LDA run:CLC:ADC #5:STA run
-	BCC P%+4:INC run+1
+	BCC @+:INC run+1:.@
 	LDA eorptr:CLC:ADC #8:STA eorptr
-	BCC P%+4:INC colhi
+	BCC @+:INC colhi:.@
 	DEC cols:BEQ alldone
 	JMP column
 .alldone
@@ -472,7 +472,7 @@ ZA_AUTO2 eorptr							; eor_up's: the row's byte in the column
 
 .advance
 	LDA eorptr:CLC:ADC #8:STA eorptr
-	BCC P%+4:INC colhi
+	BCC @+:INC colhi:.@
 	INX
 .band
 	STX bi

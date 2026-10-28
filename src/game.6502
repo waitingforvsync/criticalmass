@@ -83,8 +83,8 @@ ENDSECTION
 	LDA Keys:STA FrameKeys				; once: the IRQ writes Keys
 	JSR do_keys
 	JSR physics_step
-	LDA Cooldown:BEQ P%+5:DEC Cooldown
-	LDA ChainLeft:BEQ P%+5:DEC ChainLeft
+	LDA Cooldown:BEQ @+:DEC Cooldown:.@
+	LDA ChainLeft:BEQ @+:DEC ChainLeft:.@
 	JSR do_merges
 	JSR do_explosions
 	JSR do_fail
@@ -176,7 +176,7 @@ ENDSECTION
 										; drops at one place don't stack exactly balanced (T1 alone comes
 										; round to four phases a frame apart: the LFSR mixes it)
 	CLC:LDA DropperX:ADC t:STA BallXLo,X
-	LDA t:AND #&80:BEQ P%+4:LDA #&FF	; its sign
+	LDA t:AND #&80:BEQ @+:LDA #&FF:.@	; its sign
 	ADC DropperX+1:STA BallXHi,X
 	LDY Held
 	LDA HeldYLo,Y:STA BallYLo,X
@@ -564,10 +564,10 @@ ENDSECTION
 	LDA DrawnShape,X:CMP shape:BNE moved
 	LDA DrawnColour,X:CMP colour:BNE moved
 	LDA xu:SEC:SBC AnchorX,X			; a pixel across?
-	BCS P%+6:EOR #&FF:ADC #1
+	BCS @+:EOR #&FF:ADC #1:.@
 	CMP #2:BCS moved
 	LDA yu:SEC:SBC AnchorY,X			; two lines down?
-	BCS P%+6:EOR #&FF:ADC #1
+	BCS @+:EOR #&FF:ADC #1:.@
 	CMP #2:BCC nextlive
 .moved
 	LDA xu:STA AnchorX,X

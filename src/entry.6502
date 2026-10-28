@@ -147,9 +147,9 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 	LDA sq:STA SqLo,X
 	LDA sq+1:STA SqHi,X
 	TXA:SEC:ADC sq:STA sq				; + v + 1
-	BCC P%+4:INC sq+1
+	BCC @+:INC sq+1:.@
 	TXA:CLC:ADC sq:STA sq				; + v
-	BCC P%+4:INC sq+1
+	BCC @+:INC sq+1:.@
 	INX:BNE squares
 
 	\\ t * 6 and (t * 11) >> 1 for a signed byte t: from 6 t and 11 t as t counts up, less 6 * 256, and
@@ -159,7 +159,7 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 .times
 	LDA t6:STA Times6Lo,X
 	LDA t6+1
-	CPX #128:BCC P%+4:SBC #6			; (C set)
+	CPX #128:BCC @+:SBC #6:.@			; (C set)
 	STA Times6Hi,X
 	LDA t11+1:LSR A:TAY
 	LDA t11:ROR A						; 11 t >> 1
@@ -171,9 +171,9 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 	STA Times11Lo,X
 	TYA:STA Times11Hi,X
 	CLC:LDA t6:ADC #6:STA t6
-	BCC P%+4:INC t6+1
+	BCC @+:INC t6+1:.@
 	CLC:LDA t11:ADC #11:STA t11
-	BCC P%+4:INC t11+1
+	BCC @+:INC t11+1:.@
 	INX:BNE times
 
 	\\ each line's row's high byte, in the well (D18)
@@ -194,7 +194,7 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 	TAY:LDA RadiusQ,Y:STA r
 	TXA:LSR A:LSR A:LSR A:LSR A:TAY		; a
 	LDA RadiusQ,Y:CLC:ADC r
-	BCC P%+4:LDA #255
+	BCC @+:LDA #255:.@
 	STA PairR,X
 	TAY:LDA SqLo,Y:STA PairR2Lo,X
 	LDA SqHi,Y:STA PairR2Hi,X

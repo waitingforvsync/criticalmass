@@ -66,8 +66,8 @@
 	LDY NumBalls:BEQ done
 .loop
 	LDX Order-1,Y
-	LDA BallAge,X:CMP #255:BEQ P%+5
-	INC BallAge,X
+	LDA BallAge,X:CMP #255:BEQ @+
+	INC BallAge,X:.@
 	DEY:BNE loop
 .done
 	RTS
@@ -101,7 +101,7 @@
 	\\ gravity, and the move
 
 	CLC:LDA BallVYLo,X:ADC #Gravity:STA BallVYLo,X
-	BCC P%+5:INC BallVYHi,X
+	BCC @+:INC BallVYHi,X:.@
 	\\ the high bytes by the velocity's sign (LDA and BMI keep the low byte's carry): a carry from a
 	\\ positive one is past 65535, and no borrow from a negative one is past 0
 
@@ -299,10 +299,10 @@
 	STY j
 	LDA BallRU,X:CLC:ADC ru:STA limit
 	LDA BallXHi,X:SEC:SBC xhi
-	BCS P%+6:EOR #&FF:ADC #1			; |dx's high bytes|
+	BCS @+:EOR #&FF:ADC #1:.@			; |dx's high bytes|
 	CMP limit:BCS skip
 	LDA BallYHi,X:SEC:SBC yhi
-	BCS P%+6:EOR #&FF:ADC #1
+	BCS @+:EOR #&FF:ADC #1:.@
 	CMP limit:BCS skip
 	TXA:TAY
 	LDX first
