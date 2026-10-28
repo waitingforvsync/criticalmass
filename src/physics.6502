@@ -1,0 +1,722 @@
+\\ physics.6502 - the physics, exactly as physics.py's int mode does it: a step a 25 fps frame, with two
+\\ passes. Integrate, sort by bottom edge, sweep the pairs that might touch (pushes summed, merges found,
+\\ the near pairs kept), apply the pushes; then those near pairs again, and apply again (docs/model.md).
+\\ Units are scanlines, 8.8; pushes are 32nds of a unit (P3).
+
+\\ One step.
+\\
+\\ Inputs:
+\\     the balls: Order, NumBalls, and their arrays
+\\
+\\ Outputs:
+\\     the balls moved, Order sorted, BallHit set on any that touched
+\\     MergeA, MergeB, NumMerges: the touching pairs of a size, old enough, as found
+\\     A, X, Y: corrupted
+
+.physics_step
+{
+	JSR integrate
+	JSR sort
+	LDA #0:STA pair.again
+	JSR sweep
+	JSR apply
+	LDA #1:STA pair.again
+	JSR resweep
+	JSR apply
+	JMP age
+}
+
+\\ The second pass: the pairs that touched in the first, again.
+\\
+\\ Inputs:
+\\     NearA, NearB, NumNear; pair.again set
+\\
+\\ Outputs:
+\\     BallIX/IY: each ball's summed push; BallHit
+\\     A, X, Y: corrupted
+
+.resweep
+{
+	ZA_AUTO1 k							; local: the pair's place in the list
+
+	LDX #0
+.loop
+	CPX NumNear:BCS done
+	STX k
+	LDY NearB,X
+	LDA NearA,X:TAX
+	JSR pair
+	LDX k:INX
+	JMP loop
+.done
+	RTS
+}
+
+\\ Each ball a step older, up to 255.
+\\
+\\ Inputs:
+\\     Order, NumBalls
+\\
+\\ Outputs:
+\\     BallAge
+\\     A, X, Y: corrupted
+
+.age
+{
+	LDY NumBalls:BEQ done
+.loop
+	LDX Order-1,Y
+	LDA BallAge,X:CMP #255:BEQ P%+5
+	INC BallAge,X
+	DEY:BNE loop
+.done
+	RTS
+}
+
+\\ Gravity, the move, and the walls, floor and screen's top, bouncing at half speed; then each ball's
+\\ bottom and top for the sort and the sweep.
+\\
+\\ Inputs:
+\\     the balls
+\\
+\\ Outputs:
+\\     the balls moved; BallBotLo/Hi, BallTopHi; BallHit cleared
+\\     A, X, Y: corrupted
+
+.integrate
+{
+	ZA_AUTO1 index, size				; local: the ball's place in Order; its size
+	ZA_AUTO2 v							; local: a velocity's size, halved
+
+	LDY NumBalls:BNE some
+	RTS
+.some
+	DEY
+.ball
+	STY index
+	LDX Order,Y
+	LDA #0:STA BallHit,X
+	LDA BallSize,X:STA size
+
+	\\ gravity, and the move
+
+	CLC:LDA BallVYLo,X:ADC #Gravity:STA BallVYLo,X
+	BCC P%+5:INC BallVYHi,X
+	\\ the high bytes by the velocity's sign (LDA and BMI keep the low byte's carry): a carry from a
+	\\ positive one is past 65535, and no borrow from a negative one is past 0
+
+	CLC:LDA BallXLo,X:ADC BallVXLo,X:STA BallXLo,X
+	LDA BallVXHi,X:BMI xneg
+	ADC BallXHi,X:STA BallXHi,X
+	BCC xnotneg
+	LDA #&FF:STA BallXHi,X				; past 65535: well right of the right wall, which clamps it there
+	BNE xnotneg							; (always)
+.xneg
+	ADC BallXHi,X:STA BallXHi,X
+	BCS xnotneg
+	LDA #0:STA BallXHi,X				; past 0: well left of the left wall, which clamps it there
+.xnotneg
+	CLC:LDA BallYLo,X:ADC BallVYLo,X:STA BallYLo,X
+	LDA BallVYHi,X:BMI yneg
+	ADC BallYHi,X:STA BallYHi,X
+	BCS ycarry
+.ynotneg
+
+	\\ the floor: bounce up (quickly: well above it)
+
+	LDY size
+	LDA BallYHi,X:CMP FloorHi,Y:BCC notfloor
+	LDA FloorLo,Y:CMP BallYLo,X
+	LDA FloorHi,Y:SBC BallYHi,X
+	BCS notfloor						; y <= the floor's limit
+	LDA FloorLo,Y:STA BallYLo,X
+	LDA FloorHi,Y:STA BallYHi,X
+	JSR halfvy
+	SEC:LDA #0:SBC v:STA BallVYLo,X
+	LDA #0:SBC v+1:STA BallVYHi,X
+	JMP notop
+.yneg									; (out of the way: a falling ball's path is the hot one)
+	ADC BallYHi,X:STA BallYHi,X
+	BCC top								; past 0: above the screen's top
+	BCS ynotneg							; (always)
+.ycarry
+	LDA #&FF:STA BallYHi,X				; past 65535: well below the floor, which clamps it there
+	BNE ynotneg							; (always)
+.notfloor
+
+	\\ the screen's top: bounce down (quickly: well below it)
+
+	LDA BallYHi,X:CMP RadiusHi,Y:BEQ topcheck:BCS notop
+.topcheck
+	LDA BallYLo,X:CMP RadiusLo,Y
+	LDA BallYHi,X:SBC RadiusHi,Y
+	BCS notop							; y >= r
+.top
+	LDY size
+	LDA RadiusLo,Y:STA BallYLo,X
+	LDA RadiusHi,Y:STA BallYHi,X
+	JSR halfvy
+	LDA v:STA BallVYLo,X
+	LDA v+1:STA BallVYHi,X
+.notop
+
+	\\ the left wall: bounce right (quickly: well clear of both walls)
+
+	LDY size
+	LDA BallXHi,X
+	CMP LeftHi,Y:BEQ leftcheck:BCC leftcheck
+	CMP RightHi,Y:BCS rightcheck
+	JMP notright
+.leftcheck
+	LDA BallXLo,X:CMP LeftLo,Y
+	LDA BallXHi,X:SBC LeftHi,Y
+	BCS notleft
+	LDA LeftLo,Y:STA BallXLo,X
+	LDA LeftHi,Y:STA BallXHi,X
+	JSR halfvx
+	LDA v:STA BallVXLo,X
+	LDA v+1:STA BallVXHi,X
+	JMP notright
+.notleft
+
+	\\ the right wall: bounce left
+
+.rightcheck
+	LDA RightLo,Y:CMP BallXLo,X
+	LDA RightHi,Y:SBC BallXHi,X
+	BCS notright
+	LDA RightLo,Y:STA BallXLo,X
+	LDA RightHi,Y:STA BallXHi,X
+	JSR halfvx
+	SEC:LDA #0:SBC v:STA BallVXLo,X
+	LDA #0:SBC v+1:STA BallVXHi,X
+.notright
+
+	\\ its bottom and its top's line, and its radius for the sweep's quick test
+
+	LDA RadiusU,Y:STA BallRU,X
+	LDA Times16,Y:STA BallSize16,X
+	CLC:LDA BallYLo,X:ADC RadiusLo,Y:STA BallBotLo,X
+	LDA BallYHi,X:ADC RadiusHi,Y:STA BallBotHi,X
+	SEC:LDA BallYLo,X:SBC RadiusLo,Y
+	LDA BallYHi,X:SBC RadiusHi,Y:STA BallTopHi,X
+
+	LDY index
+	DEY:BMI done
+	JMP ball
+.done
+	RTS
+
+	\\ v = |velocity| >> 1, of vy or vx
+
+.halfvy
+	LDA BallVYLo,X:STA v
+	LDA BallVYHi,X:JMP half
+.halfvx
+	LDA BallVXLo,X:STA v
+	LDA BallVXHi,X
+.half
+	BPL positive
+	STA v+1								; negate
+	SEC:LDA #0:SBC v:STA v
+	LDA #0:SBC v+1
+.positive
+	LSR A:ROR v
+	STA v+1
+	RTS
+}
+
+\\ Sort Order by bottom edge, the lowest on the screen first: an insertion sort, as it's nearly sorted.
+\\
+\\ Inputs:
+\\     Order, NumBalls; BallBotLo/Hi
+\\
+\\ Outputs:
+\\     Order sorted (stably: equal bottoms keep their order)
+\\     A, X, Y: corrupted
+
+.sort
+{
+	ZA_AUTO1 i, cur						; local: the ball being placed, its place and slot
+	ZA_AUTO2 key						; local: its bottom
+
+	LDY #1
+.outer
+	CPY NumBalls:BCS done
+	STY i
+	LDX Order,Y:STX cur
+	LDA BallBotLo,X:STA key
+	LDA BallBotHi,X:STA key+1
+.inner
+	DEY:BMI place						; past the start
+	LDX Order,Y
+	LDA BallBotLo,X:CMP key
+	LDA BallBotHi,X:SBC key+1
+	BCS place							; this one's bottom is as low or lower: stop above it
+	TXA:STA Order+1,Y					; move it up one
+	JMP inner
+.place
+	INY
+	LDA cur:STA Order,Y
+	LDY i:INY
+	JMP outer
+.done
+	RTS
+}
+
+\\ Every pair that might touch: each ball against those after it in Order, until one's bottom is above
+\\ this one's top. A pair whose x or y high bytes are RadiusU apart or more can't pass pair's box test,
+\\ so it's skipped here, cheaply: (|dhi| - 1) * 4 <= |d| in quarter units, and RU = ceil(rq / 4).
+\\
+\\ Inputs:
+\\     Order, NumBalls; BallBotHi, BallTopHi, BallXHi, BallYHi
+\\
+\\ Outputs:
+\\     BallIX/IY: each ball's summed push; BallHit; MergeA/B, NumMerges
+\\     A, X, Y: corrupted
+
+.sweep
+{
+	ZA_AUTO1 i, j, first, top, xhi, yhi, ru, limit	; local: the pair's places; the first's slot, top,
+										; x and y high bytes and RadiusU + 1; the pair's limit
+
+	LDA #0:STA NumMerges:STA NumNear
+	LDX #0
+.outer
+	CPX NumBalls:BCS done
+	STX i
+	LDY Order,X
+	STY first
+	LDA BallTopHi,Y:STA top
+	LDA BallXHi,Y:STA xhi
+	LDA BallYHi,Y:STA yhi
+	LDA BallRU,Y:SEC:ADC #0:STA ru		; + 1
+	TXA:TAY
+.inner
+	INY:CPY NumBalls:BCS next
+	LDX Order,Y
+	LDA BallBotHi,X:CMP top:BCC next	; its bottom's above this one's top: none further can touch
+	STY j
+	LDA BallRU,X:CLC:ADC ru:STA limit
+	LDA BallXHi,X:SEC:SBC xhi
+	BCS P%+6:EOR #&FF:ADC #1			; |dx's high bytes|
+	CMP limit:BCS skip
+	LDA BallYHi,X:SEC:SBC yhi
+	BCS P%+6:EOR #&FF:ADC #1
+	CMP limit:BCS skip
+	TXA:TAY
+	LDX first
+	JSR pair
+.skip
+	LDY j
+	JMP inner
+.next
+	LDX i:INX
+	JMP outer
+.done
+	RTS
+}
+
+\\ A pair: if they overlap, each's push from the other, summed; a merge if they're a size and old
+\\ enough. Pair tables by 16 * size a + size b (PairIndex): R (0: no pair, both critical), R^2, and each
+\\ ball's log constant.
+\\
+\\ Inputs:
+\\     X, Y: the balls' slots
+\\     again: 0 the first pass (keep the pairs that touch, find merges), else not
+\\
+\\ Outputs:
+\\     BallIX/IY: the pushes added; BallHit set on both if they touch; NearA/B, NumNear; MergeA/B, NumMerges
+\\     A, X, Y: corrupted
+
+.pair
+{
+	ZA_AUTO1 again						; in: 0 the first pass
+	ZA_AUTO1 balla, ballb, index		; local: the slots; the pair tables' index
+	ZA_AUTO1 qx, qy, signs				; local: |dx|, |dy| in quarter units; bit 7 dx < 0, bit 6 dy < 0
+	ZA_AUTO2 d, d2, diff				; local: a difference; d^2; R^2 - d^2
+	ZA_AUTO2 ld, la, lb, logd			; local: the shared log; each ball's; log d
+	ZA_AUTO1 lx, ly						; local: log |dx|, log |dy|
+
+	STX balla:STY ballb
+	LDA BallSize16,X:ORA BallSize,Y:STA index
+
+	\\ |dx| in quarter units, rounded: (|dx| + 32) >> 6, out if 256 or more (R is at most 255)
+
+	SEC:LDA BallXLo,X:SBC BallXLo,Y:STA d
+	LDA BallXHi,X:SBC BallXHi,Y
+	BMI dxneg
+	CMP #64:BCS out
+	ASL A:ASL A							; (C clear: hi < 64)
+	LDX d:ADC RoundP,X:BCS out
+	STA qx
+	LDA #0:STA signs
+	JMP dxdone
+.dxneg
+	EOR #&FF:CMP #64:BCS out			; |dx| + 32 = ~dx + 33
+	ASL A:ASL A
+	LDX d:ADC RoundN,X:BCS out
+	STA qx
+	LDA #&80:STA signs
+.dxdone
+	LDX balla
+
+	SEC:LDA BallYLo,X:SBC BallYLo,Y:STA d
+	LDA BallYHi,X:SBC BallYHi,Y
+	BMI dyneg
+	CMP #64:BCS out
+	ASL A:ASL A
+	LDX d:ADC RoundP,X:BCS out
+	STA qy
+	JMP dydone
+.dyneg
+	EOR #&FF:CMP #64:BCS out
+	ASL A:ASL A
+	LDX d:ADC RoundN,X:BCS out
+	STA qy
+	LDA signs:ORA #&40:STA signs
+.dydone
+
+	\\ R; out if |dx| or |dy| reaches it, or there's no pair (two critical balls)
+
+	LDX index
+	LDA PairR,X:BEQ out
+	CMP qx:BCC out:BEQ out
+	CMP qy:BCC out:BEQ out
+	JMP inbox
+.out
+	RTS
+.inbox
+
+	\\ on top of each other: push apart up and down
+
+	LDA qx:ORA qy:BNE apart
+	INC qy								; qy = 1, dy > 0
+	LDA signs:AND #&BF:STA signs
+.apart
+
+	\\ d^2 against R^2: out if as far apart or further
+
+	LDX qx:LDY qy
+	CLC:LDA SqLo,X:ADC SqLo,Y:STA d2
+	LDA SqHi,X:ADC SqHi,Y:STA d2+1
+	BCS out								; 17 bits: further than any R
+	LDX index
+	SEC:LDA PairR2Lo,X:SBC d2:STA diff
+	LDA PairR2Hi,X:SBC d2+1:STA diff+1
+	BCC out
+	ORA diff:BEQ out					; d^2 = R^2
+
+	\\ they touch: the first pass keeps them for the second
+
+	LDX balla:LDY ballb
+	LDA #1:STA BallHit,X:STA BallHit,Y
+	LDA again:BNE kept
+	LDX NumNear:CPX #MaxNear:BCS kept
+	LDA balla:STA NearA,X
+	TYA:STA NearB,X
+	INC NumNear
+.kept
+
+	\\ log |dx|, log |dy|, and from them log d: log max + H[log max - log min]
+
+	LDX qx:BEQ onlyy
+	LDA L8,X:STA lx
+	LDX qy:BEQ onlyx
+	LDA L8,X:STA ly
+	SEC:SBC lx:BCS ybigger
+	EOR #&FF:ADC #1:TAX					; lx - ly (C was clear)
+	LDA lx:JMP addh
+.ybigger
+	TAX
+	LDA ly
+.addh
+	CLC:ADC H,X:STA logd
+	LDA #0:ROL A:STA logd+1
+	JMP gotlogd
+.onlyx
+	LDA lx:STA logd						; dy = 0: log d is log |dx|
+	LDA #0:STA logd+1
+	JMP gotlogd
+.onlyy
+	LDX qy								; dx = 0 (qy >= 1)
+	LDA L8,X:STA ly:STA logd
+	LDA #0:STA logd+1
+.gotlogd
+
+	\\ the shared log: log (R^2 - d^2) - log d; each ball's, plus its pair constant
+
+	LDX diff:LDA diff+1:JSR log16
+	SEC:LDA log16.result:SBC logd:STA ld
+	LDA log16.result+1:SBC logd+1:STA ld+1
+	LDX index
+	CLC:LDA ld:ADC PairCLo,X:STA la
+	LDA ld+1:ADC PairCHi,X:STA la+1
+	CLC:LDA ld:ADC PairCbLo,X:STA lb
+	LDA ld+1:ADC PairCbHi,X:STA lb+1
+
+	\\ the pushes: EXP of each ball's log plus log |dx| or log |dy| (0 below 0, EXP's top above 255);
+	\\ none across a zero
+
+	LDX balla
+	LDA qx:BEQ ax
+	LDY lx
+	BIT signs:BMI axneg
+	CLC:LDA BallIXLo,X:ADC (la),Y:STA BallIXLo,X
+	BCC ax:INC BallIXHi,X
+	JMP ax
+.axneg
+	SEC:LDA BallIXLo,X:SBC (la),Y:STA BallIXLo,X
+	BCS ax:DEC BallIXHi,X
+.ax
+	LDA qy:BEQ ay
+	LDY ly
+	BIT signs:BVS ayneg
+	CLC:LDA BallIYLo,X:ADC (la),Y:STA BallIYLo,X
+	BCC ay:INC BallIYHi,X
+	JMP ay
+.ayneg
+	SEC:LDA BallIYLo,X:SBC (la),Y:STA BallIYLo,X
+	BCS ay:DEC BallIYHi,X
+.ay
+	LDX ballb
+	LDA qx:BEQ bx
+	LDY lx
+	BIT signs:BPL bxneg
+	CLC:LDA BallIXLo,X:ADC (lb),Y:STA BallIXLo,X
+	BCC bx:INC BallIXHi,X
+	JMP bx
+.bxneg
+	SEC:LDA BallIXLo,X:SBC (lb),Y:STA BallIXLo,X
+	BCS bx:DEC BallIXHi,X
+.bx
+	LDA qy:BEQ by
+	LDY ly
+	BIT signs:BVC byneg
+	CLC:LDA BallIYLo,X:ADC (lb),Y:STA BallIYLo,X
+	BCC by:INC BallIYHi,X
+	JMP by
+.byneg
+	SEC:LDA BallIYLo,X:SBC (lb),Y:STA BallIYLo,X
+	BCS by:DEC BallIYHi,X
+.by
+	LDX balla:LDY ballb
+.pushed
+
+	\\ a merge: a size (not critical), both old enough, room in the list
+
+	LDA again:BNE nomerge
+	LDA BallSize,X:CMP BallSize,Y:BNE nomerge
+	CMP #CriticalSize:BCS nomerge
+	LDA BallAge,X:CMP #MergeAge:BCC nomerge
+	LDA BallAge,Y:CMP #MergeAge:BCC nomerge
+	LDX NumMerges:CPX #MaxMerges:BCS nomerge
+	LDA balla:STA MergeA,X
+	LDA ballb:STA MergeB,X
+	INC NumMerges
+.nomerge
+	RTS
+}
+
+\\ The log of a 16-bit value, as tables.py's log16: 32 to an octave, the top 8 significant bits through
+\\ L8. The shift is a jump into a chain of shifts, as many as the high byte has bits (BitLen).
+\\
+\\ Inputs:
+\\     A, X: the value's high and low bytes, 1-65535 (Z set by A)
+\\
+\\ Outputs:
+\\     result: the log, 0-511
+\\     A, X, Y: corrupted
+
+.log16
+{
+	ZA_AUTO2 result						; out: the log
+	ZA_AUTO1 hi							; local: the high byte, shifted
+
+	BNE big
+	LDA L8,X:STA result					; under 256: the table's own
+	LDA #0:STA result+1
+	RTS
+.big
+	STA hi
+	TAY:LDA BitLen,Y:TAY				; the shifts: 1-8
+	LDA ChainEntry,Y:STA jump+1
+	TXA
+.jump
+	JMP chain							; self-modified: chain + 3 (8 - shifts)
+	INPAGE 24							; (padding after the JMP: never run)
+.chain
+FOR k = 1..8
+	LSR hi:ROR A
+NEXT
+	TAX
+	LDA L8,X:CLC:ADC Times32Lo,Y:STA result
+	LDA Times32Hi,Y:ADC #0:STA result+1
+	RTS
+}
+ASSERT HI(log16.chain) == HI(log16.chain + 23), "log16's chain in one page: its entries are low bytes"
+
+\\ Apply each ball's summed push: kp (11/16) of it to its position, kv (12/16) to its velocity, then
+\\ keep it in the well.
+\\
+\\ Inputs:
+\\     the balls, BallIX/IY
+\\
+\\ Outputs:
+\\     the balls moved; BallIX/IY cleared
+\\     A, X, Y: corrupted
+
+.apply
+{
+	ZA_AUTO1 index, size				; local: the ball's place in Order; its size
+	ZA_AUTO2 t, t6, tt					; local: the push times 11, halved; times 6 (3 on the way); times 8
+
+	LDY NumBalls:BNE some
+	RTS
+.some
+	DEY
+.ball
+	STY index
+	LDX Order,Y
+	LDA BallSize,X:STA size
+
+	\\ across: nothing to do with no push (it's in the well already)
+
+	LDA BallIXLo,X:STA t
+	ORA BallIXHi,X:BNE pushx
+	JMP xdone
+.pushx
+	LDA BallIXHi,X:STA t+1
+	LDA t:ASL A:LDA t+1:ADC #0:BNE pushxbig	; a signed byte: by table, and no wrap is possible
+	LDY t
+	CLC:LDA BallVXLo,X:ADC Times6Lo,Y:STA BallVXLo,X
+	LDA BallVXHi,X:ADC Times6Hi,Y:STA BallVXHi,X
+	CLC:LDA BallXLo,X:ADC Times11Lo,Y:STA BallXLo,X
+	LDA BallXHi,X:ADC Times11Hi,Y:STA BallXHi,X
+	LDY size
+	JMP xclamp
+.pushxbig
+	JSR timesbig
+	CLC:LDA BallVXLo,X:ADC t6:STA BallVXLo,X
+	LDA BallVXHi,X:ADC t6+1:STA BallVXHi,X
+	CLC:LDA BallXLo,X:ADC t:STA BallXLo,X
+	LDA BallXHi,X:ADC t+1:STA BallXHi,X
+	LDY size
+	JSR wrapx
+.xclamp
+	LDA BallXHi,X						; quickly: well inside either wall
+	CMP LeftHi,Y:BEQ xleftcheck:BCC xleft
+	CMP RightHi,Y:BCC xdone
+.xleftcheck
+	LDA BallXLo,X:CMP LeftLo,Y			; x = max(x, left)
+	LDA BallXHi,X:SBC LeftHi,Y
+	BCS xleftok
+.xleft
+	LDA LeftLo,Y:STA BallXLo,X
+	LDA LeftHi,Y:STA BallXHi,X
+	JMP xdone
+.xleftok
+	LDA RightLo,Y:CMP BallXLo,X			; x = min(x, right)
+	LDA RightHi,Y:SBC BallXHi,X
+	BCS xdone
+.xright
+	LDA RightLo,Y:STA BallXLo,X
+	LDA RightHi,Y:STA BallXHi,X
+.xdone
+
+	\\ down, likewise
+
+	LDA BallIYLo,X:STA t
+	ORA BallIYHi,X:BNE pushy
+	JMP ydone
+.pushy
+	LDA BallIYHi,X:STA t+1
+	LDA t:ASL A:LDA t+1:ADC #0:BNE pushybig	; a signed byte: by table, and no wrap is possible
+	LDY t
+	CLC:LDA BallVYLo,X:ADC Times6Lo,Y:STA BallVYLo,X
+	LDA BallVYHi,X:ADC Times6Hi,Y:STA BallVYHi,X
+	CLC:LDA BallYLo,X:ADC Times11Lo,Y:STA BallYLo,X
+	LDA BallYHi,X:ADC Times11Hi,Y:STA BallYHi,X
+	LDY size
+	JMP yclamp
+.pushybig
+	JSR timesbig
+	CLC:LDA BallVYLo,X:ADC t6:STA BallVYLo,X
+	LDA BallVYHi,X:ADC t6+1:STA BallVYHi,X
+	CLC:LDA BallYLo,X:ADC t:STA BallYLo,X
+	LDA BallYHi,X:ADC t+1:STA BallYHi,X
+	LDY size
+	JSR wrapy
+.yclamp
+	LDA BallYHi,X						; quickly: well clear of the top and the floor
+	CMP RadiusHi,Y:BEQ ytopcheck:BCC ytop
+	CMP FloorHi,Y:BCC ydone
+.ytopcheck
+	LDA BallYLo,X:CMP RadiusLo,Y		; y = max(y, r)
+	LDA BallYHi,X:SBC RadiusHi,Y
+	BCS ytopok
+.ytop
+	LDA RadiusLo,Y:STA BallYLo,X
+	LDA RadiusHi,Y:STA BallYHi,X
+	JMP ydone
+.ytopok
+	LDA FloorLo,Y:CMP BallYLo,X			; y = min(y, floor)
+	LDA FloorHi,Y:SBC BallYHi,X
+	BCS ydone
+.yfloor
+	LDA FloorLo,Y:STA BallYLo,X
+	LDA FloorHi,Y:STA BallYHi,X
+.ydone
+
+	LDA #0
+	STA BallIXLo,X:STA BallIXHi,X:STA BallIYLo,X:STA BallIYHi,X
+
+	LDY index
+	DEY:BMI done
+	JMP ball
+.done
+	RTS
+
+	\\ a push wrapped the position past 0 or 65535: the add's carry against the push's sign (C from the
+	\\ high byte's add, t+1 the push's); a wrap goes to the limit on that side, as Python's clamp would
+
+.wrapx
+	BCS xcarry
+	LDA t+1:BMI xleftpop				; a negative push that borrowed: below 0
+	RTS
+.xcarry
+	LDA t+1:BPL xrightpop				; a positive push that carried: past 65535
+	RTS
+.xleftpop
+	PLA:PLA:JMP xleft
+.xrightpop
+	PLA:PLA:JMP xright
+.wrapy
+	BCS ycarry
+	LDA t+1:BMI ytoppop
+	RTS
+.ycarry
+	LDA t+1:BPL yfloorpop
+	RTS
+.ytoppop
+	PLA:PLA:JMP ytop
+.yfloorpop
+	PLA:PLA:JMP yfloor
+
+	\\ t6 = t * 6 and t = (t * 11) >> 1, signed, for a push too big for the tables (one that fits a
+	\\ signed byte is done inline, by table)
+
+.timesbig
+	LDA t:ASL A:STA t6					; t * 2
+	LDA t+1:ROL A:STA t6+1
+	LDA t6:ASL A:STA tt					; t * 8
+	LDA t6+1:ROL A:ASL tt:ROL A:STA tt+1
+	CLC:LDA t6:ADC t:STA t6				; t * 3
+	LDA t6+1:ADC t+1:STA t6+1
+	CLC:LDA tt:ADC t6:STA t				; t * 11
+	LDA tt+1:ADC t6+1
+	CMP #&80:ROR A:STA t+1				; >> 1, signed
+	ROR t
+	ASL t6:ROL t6+1						; t * 6
+	RTS
+}

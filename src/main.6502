@@ -1,0 +1,96 @@
+\\ main.6502 - the main loop: a frame every other vsync (D6, 25 fps): the keys, then the game's frame; at
+\\ game over, RETURN (let go, then pressed) starts another.
+
+ZA_AUTO1 frame							; the vsync count the last frame started at
+
+\\ The main loop.
+\\
+\\ Inputs:
+\\     none
+\\
+\\ Outputs:
+\\     none: it never returns
+
+.main
+{
+	\\ the screen: cleared (the loader with it), the background drawn; then at a vsync the palette, and
+	\\ the display on
+
+	JSR clear_screen
+	JSR draw_background
+	LDA vsyncs
+.waitvsync
+	CMP vsyncs:BEQ waitvsync
+	LDX #15
+.palloop
+	LDA palette,X:STA &FE21				; video ULA: palette
+	DEX:BPL palloop
+	LDA #8:STA &FE00:LDA #&C0:STA &FE01	; CRTC R8: the display on, no cursor
+
+	LDA &FE44:STA Seed					; system VIA: T1 low, as random as anything
+	LDA &FE45:ORA #1:STA Seed+1			; (never 0)
+	LDA #0:STA Best:STA Best+1:STA Best+2
+	JSR sound_init
+	JSR new_game
+	LDA vsyncs:STA frame
+.loop
+	LDA vsyncs:SEC:SBC frame
+	CMP #2:BCC loop						; two vsyncs a frame
+	CMP #6:BCC ontime					; a late frame's lost time is made up, but no more than a frame's
+	LDA vsyncs:SEC:SBC #2:STA frame		; (after a slow patch, no racing to catch up)
+.ontime
+	LDA frame:CLC:ADC #2:STA frame
+	LDA Over:BNE over					; (the IRQ reads the keys)
+	JSR game_frame
+	LDA Over:BEQ loop
+	JSR draw_game_over					; (the game's just ended)
+	JMP loop
+
+	\\ game over: RETURN let go, then pressed, starts another, on a clear screen
+
+.over
+	LDA Keys:AND #KeyDrop:BNE waitgo
+	LDA #1:STA Released
+	JMP loop
+.waitgo
+	LDA Released:BEQ loop
+
+	\\ the best score: this game's, if it's higher (BCD compares as binary)
+
+	LDA Best:CMP Score
+	LDA Best+1:SBC Score+1
+	LDA Best+2:SBC Score+2
+	BCS notbest
+	LDA Score:STA Best
+	LDA Score+1:STA Best+1
+	LDA Score+2:STA Best+2
+.notbest
+	JSR clear_screen
+	JSR draw_background
+	JSR new_game
+	LDA #0:STA Released					; RETURN's still down: it mustn't drop the new game's first ball
+	JMP loop
+}
+
+.palette
+	EQUB GenPalette						; logical in the top nybble, physical EOR 7 in the bottom
+
+\\ Clear the screen.
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.clear_screen
+{
+	LDA #0:TAY
+	LDX #HI(ScreenBytes)
+	LDA #HI(ScreenAddr):STA addr+2
+	LDA #0
+.loop
+.addr
+	STA ScreenAddr,Y					; self-modified: the page
+	INY:BNE loop
+	INC addr+2
+	DEX:BNE loop
+	RTS
+}

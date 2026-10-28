@@ -1,0 +1,178 @@
+
+.main
+	LDA #2:STA &FE4D:.vsync BIT &FE4D:BEQ vsync
+	LDA #8:STA &FE00
+	LDA #&C0:STA &FE01
+	
+	LDA #32:STA ball_x+0:STA ball_oldx+0
+	LDA #40:STA ball_y+0:STA ball_oldy+0
+	LDA #0:STA ball_oldsize+0	
+	LDA #9:STA ball_size+0
+	
+	LDA #1:STA num_balls
+	
+	LDX #0:JSR plotball
+
+	.mainloop
+	LDA ball_size+0:STA ball_oldsize+0
+	LDA ball_x+0:STA ball_oldx+0
+	LDA ball_y+0:STA ball_oldy+0
+	CLC:ADC #1
+	STA ball_y+0
+	
+	LDX #0:JSR plotball
+	
+	JMP mainloop
+	
+	
+	
+; The entry point of the ball plotting routine
+; Enter with X = ball index to plot	
+; @todo: look at the possibility of size-optimizing this - right now there's plenty of near-repetition
+	
+.plotball
+
+	; Determine which is ball 1 and which is ball 2
+	; and set up the variables accordingly
+	
+	LDA ball_x,X:CMP ball_oldx,X
+	BCS oldballfirst
+
+	{
+		; index 1 is new ball, index 2 is old ball
+
+		; Initialize the ball colours
+		LDY ball_size,X
+		LDA ball_even_colours,Y:STA data1even+2
+		AND #&AA:STA data1even+1:STA data1even+3
+		LDA ball_odd_colours,Y:STA data1odd+2
+		AND #&AA:STA data1odd+1:STA data1odd+3
+		LDY ball_oldsize,X
+		LDA ball_even_colours,Y:STA data2even+2
+		AND #&AA:STA data2even+1:STA data2even+3
+		LDA ball_odd_colours,Y:STA data2odd+2
+		AND #&AA:STA data2odd+1:STA data2odd+3
+
+		; initialize the ball start/end columns
+		LDA ball_x,X:LSR A:LSR A:STA columnstart1:CLC:ADC ball_size,X:STA columnend1
+		LDA ball_oldx,X:LSR A:LSR A:STA columnstart2:CLC:ADC ball_oldsize,X:STA columnend2
+
+		; initialize the ball offsets
+		SEC:LDA ball_y,X:SBC ball_oldy,X:BCS newballlower
+		
+		; case where x < oldx and y < oldy
+		; i.e. new ball is to the left and higher
+		
+		EOR #255:ADC #1:STA offset1_sm+1		; index 1 is new ball (offset higher than the baseline)
+		LDA #0:STA offset2_sm+1					; index 2 is old ball
+		LDY ball_oldy,X							; old ball y is the lowest y, so calculate the address from that
+		JMP calcballaddr
+		
+		.newballlower
+		
+		; case where x < oldx and y >= oldy
+		; i.e. new ball is to the left and lower
+		
+		STA offset2_sm+1						; index 2 is old ball (offset higher than the baseline)
+		LDA #0:STA offset1_sm+1					; index 1 is the old ball
+		LDY ball_y,X
+		JMP calcballaddr
+	}
+	
+	.oldballfirst
+
+	{
+		; index 1 is old ball, index 2 is new ball
+
+		; Initialize the ball colours
+		LDY ball_oldsize,X
+		LDA ball_even_colours,Y:STA data1even+2
+		AND #&AA:STA data1even+1:STA data1even+3
+		LDA ball_odd_colours,Y:STA data1odd+2
+		AND #&AA:STA data1odd+1:STA data1odd+3
+		LDY ball_size,X
+		LDA ball_even_colours,Y:STA data2even+2
+		AND #&AA:STA data2even+1:STA data2even+3
+		LDA ball_odd_colours,Y:STA data2odd+2
+		AND #&AA:STA data2odd+1:STA data2odd+3
+
+		; initialize the ball start/end columns
+		LDA ball_oldx,X:LSR A:LSR A:STA columnstart1:CLC:ADC ball_oldsize,X:STA columnend1
+		LDA ball_x,X:LSR A:LSR A:STA columnstart2:CLC:ADC ball_size,X:STA columnend2
+
+		; initialize the ball offsets
+		SEC:LDA ball_y,X:SBC ball_oldy,X:BCS newballlower
+		
+		; case where x >= oldx and y < oldy
+		; i.e. new ball is to the right and higher
+		
+		EOR #255:ADC #1:STA offset2_sm+1		; index 2 is new ball (offset higher than the baseline)
+		LDA #0:STA offset1_sm+1					; index 1 is old ball
+		LDY ball_oldy,X							; old ball y is the lowest y, so calculate the address from that
+		JMP calcballaddr
+		
+		.newballlower
+		
+		; case where x >= oldx and y >= oldy
+		; i.e. new ball is to the right and lower
+		
+		STA offset1_sm+1						; index 1 is old ball (offset higher than the baseline)
+		LDA #0:STA offset2_sm+1					; index 2 is the old ball
+		LDY ball_y,X
+	}
+	
+	.calcballaddr
+	LDA columnstart1:
+
+IF 0
+	; Initialize the core routine self-modified operands with their initial values
+	; @todo: this needs to be for every column
+	LDA #lengths1-1:STA length1_sm+1
+	LDA #lengths2-1:STA length2_sm+1
+	LDA #data1odd-1:STA data1odd_sm+1
+	LDA #data2odd-1:STA data2odd_sm+1
+	LDA #data1even-1:STA data1even_sm+1
+	LDA #data2even-1:STA data2even_sm+1
+	
+	; Initialize the ball colours
+	; @todo: decide which colour is for which data
+	LDY ball_size,X
+	LDA ball_even_colours,Y:STA data1even+2
+	AND #&AA:STA data1even+1:STA data1even+3
+	LDA ball_odd_colours,Y:STA data1odd+2
+	AND #&AA:STA data1odd+1:STA data1odd+3
+
+	; ball_size is equal to the number of columns we need to plot
+	; the pixel width is (ball_size * 2 - 1)
+	; the pixel height is (ball_size * 2 - 1) * 2
+
+	; Get base y here
+
+	SEC:LDA ball_y,X:SBC ball_oldy,X:BCS y_greater
+	
+	; Case where y < oldy, i.e. oldy is the baseline and y gets an offset
+	EOR #255:ADC #1:STA offsety
+	LDY ball_oldy,X
+	LDA #0:STA offsetoldy:BEQ calc_y_addr
+	
+	; Case where y >= oldy, i.e. y is the baseline and oldy gets an offset
+	.y_greater	
+	STA offsetoldy
+	LDA #0:STA offsety
+	LDY ball_y,X
+	
+	.calc_y_addr
+	TYA:AND #&F8:LSR A:LSR A:STA screen_sm+2
+	TYA:AND #7:TAY
+	
+	; Get base x here
+
+	LDA ball_x,X:CMP ball_oldx,X
+	BCC x_lower:LDA ball_oldx,X:CLC:.x_lower
+	
+	AND #&FC:ASL A:BCC P%+5:INC screen_sm+2:CLC
+	ADC #&10:STA screen_sm+1:BCC P%+4:INC screen_sm+2
+ENDIF
+
+	JMP plotball_core
+	

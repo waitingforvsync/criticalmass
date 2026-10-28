@@ -1,0 +1,180 @@
+\\ Sprite format:
+\\  - number of leading spaces
+\\  - number of single pixel columns (plotted before and after full bytes)
+\\  - number of full bytes
+\\
+\\ We have to change the single pixel byte at about the midpoint of the ball
+\\ For column 0 balls, this is at floor(column_width/2)
+\\ For column 1 balls, this is at ceil(column_width/2)
+
+.ball_col0_offsets
+	EQUB 0, 0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55
+
+.ball_col1_offsets
+	EQUB 0, 0, 2, 5, 9, 14, 20, 27, 35, 44, 54, 65
+
+.ball_leading_space
+	EQUB 0												; 1 wide
+	EQUB 0, 1											; 3 wide
+	EQUB 1, 0, 3										; 5 wide
+	EQUB 2, 0, 0, 4										; 7 wide
+	EQUB 2, 0, 0, 1, 5									; 9 wide
+	EQUB 4, 1, 0, 0, 2, 7								; 11 wide
+	EQUB 5, 2, 0, 0, 1, 3, 8							; 13 wide
+	EQUB 6, 2, 0, 0, 0, 1, 4, 10						; 15 wide
+	EQUB 7, 3, 1, 0, 0, 0, 2, 5, 11						; 17 wide
+	EQUB 9, 5, 2, 0, 0, 0, 1, 3, 7, 13					; 19 wide
+	EQUB 11, 6, 3, 1, 0, 0, 0, 2, 4, 8, 14				; 21 wide
+	
+.ball_single_pixels
+	EQUB 2												; 1 wide
+	EQUB 1, 4											; 3 wide
+	EQUB 2, 1, 4										; 5 wide
+	EQUB 2, 0, 2, 6										; 7 wide
+	EQUB 3, 1, 0, 1, 8									; 9 wide
+	EQUB 3, 1, 0, 1, 2, 8								; 11 wide
+	EQUB 3, 1, 1, 0, 1, 2, 10							; 13 wide
+	EQUB 4, 2, 1, 0, 0, 1, 2, 10						; 15 wide
+	EQUB 4, 2, 1, 0, 0, 1, 1, 2, 12						; 17 wide
+	EQUB 4, 2, 1, 1, 0, 0, 1, 2, 2, 12					; 19 wide
+	EQUB 3, 2, 1, 1, 0, 0, 1, 1, 2, 3, 14				; 21 wide
+	
+.ball_full_bytes
+	EQUB 0												; 1 wide
+	EQUB 4, 0											; 3 wide
+	EQUB 4, 8, 0										; 5 wide
+	EQUB 6, 14, 10, 0									; 7 wide
+	EQUB 8, 16, 18, 14, 0								; 9 wide
+	EQUB 8, 18, 22, 20, 14, 0							; 11 wide
+	EQUB 10, 20, 24, 26, 22, 16, 0						; 13 wide
+	EQUB 10, 22, 28, 30, 30, 26, 18, 0					; 15 wide
+	EQUB 12, 24, 30, 34, 34, 32, 28, 20, 0				; 17 wide
+	EQUB 12, 24, 32, 36, 38, 38, 34, 28, 20, 0			; 19 wide
+	EQUB 14, 26, 34, 38, 42, 42, 40, 36, 30, 20, 0		; 21 wide
+
+
+
+; X = ball index to plot
+
+.plotball
+{
+	; ball_size is equal to the number of columns we need to plot
+	; the pixel width is (ball_size * 2 - 1)
+	; the pixel height is (ball_size * 2 - 1) * 2
+	
+
+	LDA ball_x,X:CMP ball_oldx,X
+	BCS x_greater
+	
+	; Case where x < oldx
+	
+	.x_greater
+	
+	RTS
+}
+
+
+.plotcolumn
+
+	LDA dataeven1
+	EOR dataeven2
+	BEQ skipplot
+	
+	STA spritedata0
+	LDA dataodd1
+	EOR dataodd2
+	STA spritedata1
+	
+	; plot a run of pixels
+
+	LDX count:BEQ finishedplot
+	LDA branchtab,Y:STA linebranch-1:BPL linebranch:.linebranch
+	.plotline7 LDA spritedata1:EOR (screen),Y:STA (screen),Y:DEY:DEX:BEQ finishedplot
+	.plotline6 LDA spritedata0:EOR (screen),Y:STA (screen),Y:DEY:DEX:BEQ finishedplot
+	.plotline5 LDA spritedata1:EOR (screen),Y:STA (screen),Y:DEY:DEX:BEQ finishedplot
+	.plotline4 LDA spritedata0:EOR (screen),Y:STA (screen),Y:DEY:DEX:BEQ finishedplot
+	.plotline3 LDA spritedata1:EOR (screen),Y:STA (screen),Y:DEY:DEX:BEQ finishedplot
+	.plotline2 LDA spritedata0:EOR (screen),Y:STA (screen),Y:DEY:DEX:BEQ finishedplot
+	.plotline1 LDA spritedata1:EOR (screen),Y:STA (screen),Y:DEY:DEX:BEQ finishedplot
+	.plotline0 LDA spritedata0:EOR (screen),Y:STA (screen),Y
+	DEC write+1:DEC write+1:LDY #7
+	DEX:BNE plotline7
+	BEQ finishedplot
+
+	; skip leading space
+
+	.skipplot
+	SEC:TYA:SBC count:BCS skipdone:.skiploop
+	DEC screen+1:DEC screen+1
+	ADC #8:BCC skiploop:.skipdone
+	
+	.finishedplot
+
+	
+
+.branchtab
+	EQUB plotline0-linebranch
+	EQUB plotline1-linebranch
+	EQUB plotline2-linebranch
+	EQUB plotline3-linebranch
+	EQUB plotline4-linebranch
+	EQUB plotline5-linebranch
+	EQUB plotline6-linebranch
+	EQUB plotline7-linebranch
+	
+	IF ((P% EOR branchtab) AND &FF00)
+		ERROR "Branch table crosses page boundary"
+	ENDIF
+
+.plotballflat
+{
+	LDA #0:STA count1:STA count2
+
+
+	SEC
+	LDA count1:SBC count2
+	BCC count2greater
+	
+	; count1 greater - reduce it by count2
+	STA count1
+	
+	LDA data1
+	EOR data2
+	BEQ skipplot
+	
+	STA plotloop+1
+	LDX count2
+	.plotloop
+	LDA #&FF:EOR (screen),Y:STA (screen),Y
+	DEY:BMI differentrow1
+	.backfromdifferentrow1
+	DEX:BNE plotloop
+	
+	.findnextphase2 INC counts2sm+1
+	.counts2sm LDA counts2:BEQ findnextphase2
+	STA count2:AND count1:BMI finished
+	
+	LDA count1:;BNE
+	
+	.findnextphase1 INC counts1sm+1
+	.counts1sm LDA counts1:BEQ findnextphase1
+	STA count1:AND count2:BMI finished
+	
+	
+	.differentrow1
+	DEC screen+1:DEC screen+1
+	LDY #7:BNE backfromdifferentrow1
+	
+	.skipplot
+	TYA:SEC:SBC count2:BCS skipdone:.skiploop
+	DEC screen+1:DEC screen+1
+	ADC #8:BCC skiploop:.skipdone
+	TAY
+	
+	
+	
+	.count2greater
+	EOR #255:ADC #1:STA count2
+	
+	.finished
+}

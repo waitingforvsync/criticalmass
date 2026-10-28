@@ -1,0 +1,4 @@
+.irq
+	LDA &FC
+	RTI
+	

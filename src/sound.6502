@@ -1,0 +1,138 @@
+\\ sound.6502 - the sound: a few effects on the SN76489, stepped by the IRQ at 50 Hz. Each effect has a
+\\ channel, a period (pitch) that slides, and a volume that decays; the game asks for one by writing a
+\\ request byte, which the IRQ takes. Port A is the chip's only while the IRQ has it (teddyboy's way): the
+\\ IRQ reads the keys first, then gives port A to the chip, then back to the keyboard.
+
+SoundNone = 0
+SoundDrop = 1
+SoundMerge = 2							; SoundParam: the new size
+SoundExplode = 3
+SoundOver = 4
+
+SECTION MainVars
+.SoundReq		SKIP 1					; a request, or SoundNone: the game writes it, the IRQ takes it
+.SoundParam		SKIP 1
+.ChanPeriodLo	SKIP 4					; each channel's (0-2 tone, 3 noise): its period, 10 bits
+.ChanPeriodHi	SKIP 4
+.ChanSlide		SKIP 4					; added to the period each frame, signed
+.ChanAtt		SKIP 4					; its attenuation, 0 loud - 15 silent; 16 or more: off
+.ChanDecay		SKIP 4					; frames between steps of attenuation
+.ChanTick		SKIP 4
+ENDSECTION
+
+\\ Write a byte to the chip (port A outputs, the keyboard off PA7).
+\\
+\\ Inputs:
+\\     A: the byte
+\\
+\\ Outputs:
+\\     A: corrupted
+
+.psg_write
+{
+	STA &FE4F							; system VIA: port A
+	LDA #0:STA &FE40					; addressable latch: sound write enable on
+	NOP:NOP:NOP:NOP
+	LDA #8:STA &FE40					; and off
+	RTS
+}
+
+\\ The sound's frame, from the IRQ: a request started, each channel stepped, the chip written.
+\\
+\\ Inputs:
+\\     SoundReq, SoundParam
+\\
+\\ Outputs:
+\\     SoundReq taken; the channels; A, X, Y corrupted (the IRQ saves X and Y)
+
+.sound_frame
+{
+	LDA #&FF:STA &FE43					; system VIA: DDRA, port A all outputs
+	LDA #&0B:STA &FE40					; and the keyboard off PA7
+
+	\\ a request: its channel's state set
+
+	LDA SoundReq:BEQ step
+	LDX #0:STX SoundReq
+	ASL A:ASL A:ASL A:TAY				; 8 bytes an effect
+	LDX Effects-8,Y						; its channel
+	LDA Effects-7,Y:STA ChanPeriodLo,X
+	LDA Effects-6,Y:STA ChanPeriodHi,X
+	LDA Effects-5,Y:STA ChanSlide,X
+	LDA Effects-4,Y:STA ChanAtt,X
+	LDA Effects-3,Y:STA ChanDecay,X:STA ChanTick,X
+	CPY #SoundMerge * 8:BNE step
+	LDA SoundParam:ASL A:ASL A:ASL A:ASL A	; a merge: lower the bigger, 16 a size
+	CLC:ADC ChanPeriodLo,X:STA ChanPeriodLo,X
+	BCC step:INC ChanPeriodHi,X
+
+	\\ each channel: its period and volume written, then slid and decayed
+
+.step
+	LDX #3
+.channel
+	LDA ChanAtt,X:CMP #16:BCS silent
+	CPX #3:BEQ noise
+	LDA ChanPeriodLo,X:AND #15:ORA ChanBits,X:ORA #&80	; latch: the tone, its low 4 bits
+	JSR psg_write
+	LDA ChanPeriodHi,X:ASL A:ASL A:ASL A:ASL A:STA t	; its high 6 bits
+	LDA ChanPeriodLo,X:LSR A:LSR A:LSR A:LSR A
+	ORA t:AND #63
+	JSR psg_write
+	JMP volume
+.noise
+	LDA #&E4:JSR psg_write				; noise: white, the slowest fixed rate
+.volume
+	LDA ChanAtt,X:ORA ChanBits,X:ORA #&90
+	JSR psg_write
+	LDA ChanSlide,X:BMI slidedown
+	CLC:ADC ChanPeriodLo,X:STA ChanPeriodLo,X
+	BCC slid:INC ChanPeriodHi,X
+	JMP slid
+.slidedown
+	CLC:ADC ChanPeriodLo,X:STA ChanPeriodLo,X
+	BCS slid:DEC ChanPeriodHi,X
+.slid
+	DEC ChanTick,X:BNE next
+	LDA ChanDecay,X:STA ChanTick,X
+	INC ChanAtt,X
+	JMP next
+.silent
+	BNE next							; (past 16: silenced already)
+	LDA ChanBits,X:ORA #&9F				; attenuation 15: off
+	JSR psg_write
+	INC ChanAtt,X
+.next
+	DEX:BMI done
+	JMP channel
+.done
+	LDA #&03:STA &FE40					; the keyboard back on PA7
+	LDA #&7F:STA &FE43					; and bit 7 an input again
+	RTS
+	ZA_AUTO1 t							; local: the period's high bits
+}
+
+\\ Silence every channel (at the start): each marked off, so the IRQ writes its attenuation 15 once.
+\\
+\\ Outputs:
+\\     A, X: corrupted
+
+.sound_init
+{
+	LDX #3
+.loop
+	LDA #16:STA ChanAtt,X
+	DEX:BPL loop
+	LDA #SoundNone:STA SoundReq
+	RTS
+}
+
+.ChanBits	EQUB &00, &20, &40, &60		; each channel's bits in a command byte
+
+\\ The effects, by request (from 1): channel, period lo and hi, slide, attenuation, decay, and 2 spare
+
+.Effects
+	EQUB 1, LO(500), HI(500), 8, 2, 1, 0, 0		; drop: a low thud, falling
+	EQUB 0, LO(120), HI(120), 2, 0, 2, 0, 0		; merge: a plink, lower for bigger balls
+	EQUB 3, 0, 0, 0, 0, 4, 0, 0					; explode: noise, dying away
+	EQUB 2, LO(300), HI(300), 6, 0, 6, 0, 0		; game over: a long falling tone

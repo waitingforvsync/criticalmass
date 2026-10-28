@@ -1,0 +1,107 @@
+.aligneddatastart
+
+\\ Sprite format:
+\\  - number of leading spaces
+\\  - number of single pixel columns (plotted before and after full bytes)
+\\  - number of full bytes
+\\
+\\ We have to change the single pixel byte at about the midpoint of the ball
+\\ For column 0 balls, this is at floor(column_width/2)
+\\ For column 1 balls, this is at ceil(column_width/2)
+
+.ball_col0_offsets
+	EQUB 0, 0, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55
+
+.ball_col1_offsets
+	EQUB 0, 0, 2, 5, 9, 14, 20, 27, 35, 44, 54, 65
+
+.ball_leading_space
+	EQUB 0												; 1 wide
+	EQUB 0, 1											; 3 wide
+	EQUB 1, 0, 3										; 5 wide
+	EQUB 2, 0, 0, 4										; 7 wide
+	EQUB 2, 0, 0, 1, 5									; 9 wide
+	EQUB 4, 1, 0, 0, 2, 7								; 11 wide
+	EQUB 5, 2, 0, 0, 1, 3, 8							; 13 wide
+	EQUB 6, 2, 0, 0, 0, 1, 4, 10						; 15 wide
+	EQUB 7, 3, 1, 0, 0, 0, 2, 5, 11						; 17 wide
+	EQUB 9, 5, 2, 0, 0, 0, 1, 3, 7, 13					; 19 wide
+	EQUB 11, 6, 3, 1, 0, 0, 0, 2, 4, 8, 14				; 21 wide
+	
+.ball_single_pixels
+	EQUB 2												; 1 wide
+	EQUB 1, 4											; 3 wide
+	EQUB 2, 1, 4										; 5 wide
+	EQUB 2, 0, 2, 6										; 7 wide
+	EQUB 3, 1, 0, 1, 8									; 9 wide
+	EQUB 3, 1, 0, 1, 2, 8								; 11 wide
+	EQUB 3, 1, 1, 0, 1, 2, 10							; 13 wide
+	EQUB 4, 2, 1, 0, 0, 1, 2, 10						; 15 wide
+	EQUB 4, 2, 1, 0, 0, 1, 1, 2, 12						; 17 wide
+	EQUB 4, 2, 1, 1, 0, 0, 1, 2, 2, 12					; 19 wide
+	EQUB 3, 2, 1, 1, 0, 0, 1, 1, 2, 3, 14				; 21 wide
+	
+.ball_full_bytes
+	EQUB 0												; 1 wide
+	EQUB 4, 0											; 3 wide
+	EQUB 4, 8, 0										; 5 wide
+	EQUB 6, 14, 10, 0									; 7 wide
+	EQUB 8, 16, 18, 14, 0								; 9 wide
+	EQUB 8, 18, 22, 20, 14, 0							; 11 wide
+	EQUB 10, 20, 24, 26, 22, 16, 0						; 13 wide
+	EQUB 10, 22, 28, 30, 30, 26, 18, 0					; 15 wide
+	EQUB 12, 24, 30, 34, 34, 32, 28, 20, 0				; 17 wide
+	EQUB 12, 24, 32, 36, 38, 38, 34, 28, 20, 0			; 19 wide
+	EQUB 14, 26, 34, 38, 42, 42, 40, 36, 30, 20, 0		; 21 wide
+
+
+colour_black   = &00
+colour_blue    = &03
+colour_red     = &0C
+colour_magenta = &0F
+colour_green   = &30
+colour_cyan    = &33
+colour_yellow  = &3C
+colour_white   = &3F
+
+colour_black_l   = colour_black AND &AA    : colour_black_r   = colour_black AND &55
+colour_blue_l    = colour_blue AND &AA     : colour_blue_r    = colour_blue AND &55
+colour_red_l     = colour_red AND &AA      : colour_red_r     = colour_red AND &55
+colour_magenta_l = colour_magenta AND &AA  : colour_magenta_r = colour_magenta AND &55
+colour_green_l   = colour_green AND &AA    : colour_green_r   = colour_green AND &55
+colour_cyan_l    = colour_cyan AND &AA     : colour_cyan_r    = colour_cyan AND &55
+colour_yellow_l  = colour_yellow AND &AA   : colour_yellow_r  = colour_yellow AND &55
+colour_white_l   = colour_white AND &AA    : colour_white_r   = colour_white AND &55
+
+.ball_even_colours
+	EQUB colour_black
+	EQUB colour_white
+	EQUB colour_cyan
+	EQUB colour_green_l OR colour_magenta_r
+	EQUB colour_red
+	EQUB colour_magenta
+	EQUB colour_blue
+	EQUB colour_red_l OR colour_yellow_r
+	EQUB colour_blue_l OR colour_cyan_r
+	EQUB colour_red_l OR colour_green_r
+	EQUB colour_blue_l OR colour_magenta_r
+	EQUB colour_green_l OR colour_cyan_r
+
+.ball_odd_colours
+	EQUB colour_black
+	EQUB colour_white
+	EQUB colour_cyan
+	EQUB colour_green_r OR colour_magenta_l
+	EQUB colour_red
+	EQUB colour_magenta
+	EQUB colour_blue
+	EQUB colour_red_r OR colour_yellow_l
+	EQUB colour_blue_r OR colour_cyan_l
+	EQUB colour_red_r OR colour_green_l
+	EQUB colour_blue_r OR colour_magenta_l
+	EQUB colour_green_r OR colour_cyan_l
+
+
+IF P%-aligneddatastart>&100
+	ERROR "Aligned data crossed a page boundary"
+ENDIF

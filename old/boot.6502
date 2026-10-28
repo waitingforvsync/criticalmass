@@ -1,0 +1,18 @@
+\\ !Boot file
+
+ORG &400
+
+CLI
+LDA #15:LDX #0:JSR &FFF4
+LDA #135:JSR &FFF4:CPY #7:BEQ message
+LDA #8:STA &FE00:LDA #&F0:STA &FE01:JMP load
+.message
+LDX #0:.loop LDA title,X:JSR &FFE3:INX:CMP #13:BNE loop:JSR &FFE7
+.load
+LDX #LO(cmd):LDY #HI(cmd):LDA #2:JMP (&21E)
+
+.title EQUS "CRITICAL "
+.cmd EQUS "MASS", 13
+
+SAVE "!BOOT", &400, P%
+CLEAR &400, P%

@@ -1,0 +1,161 @@
+ORG zpcopy_start
+GUARD ball_yfrac
+
+.data1even				EQUB 0, 1, 1, 1			; note: 5 entries, overlaps into next table
+.data2even				EQUB 0, 1, 1, 1			;
+.data1odd				EQUB 0, 1, 1, 1			;
+.data2odd				EQUB 0, 1, 1, 1, 0
+.lengths1				EQUB 0, 0, 0, 255
+.lengths2				EQUB 0, 0, 0, 255
+.multabloptr			EQUW multablo
+.mulnegtabloptr			EQUW mulnegtablo
+.multabhiptr			EQUW multabhi
+.mulnegtabhiptr			EQUW mulnegtabhi
+
+
+	.skipplot
+	
+	; assume C set
+	TYA:STX P%+3:SBC #0:BCS skipdone:.skiploop
+	DEC screen_sm+2:DEC screen_sm+2
+	ADC #8:BCC skiploop:.skipdone
+	TAY
+	
+.plotballcolumn		
+
+	; Requisites when jumping here:
+	; - ensure C set on entry
+	; - count1/count2 loaded from the first lengths array of each ball
+	; - length1_sm*1 set to lengths1-1
+	; - length2_sm+1 set to lengths2-1
+	; - data1odd_sm+1 set to data1odd-1
+	; - data2odd_sm+1 set to data2odd-1
+	; - data1even_sm+1 set to data1even-1
+	; - data2even_sm+1 set to data2even-1
+	; - screen_sm set to the bottom left screen address
+
+	.nextblock
+
+	; assume C set
+	LDA count1:SBC count2
+	BCC count2greater
+	
+	; count1 greater or equal - reduce it by count2
+	; iterate count2 times
+	
+	STA count1
+	LDX count2:BMI plotball_core
+	
+	INC length2_sm+1
+	INC data2odd_sm+1
+	INC data2even_sm+1
+	.length2_sm LDA lengths2:STA count2
+	
+	LDA count1
+	BNE plotblock
+	BEQ countsequal
+	
+	; count2 greater - reduce it by count1
+	; iterate count1 times
+	
+	.count2greater
+	EOR #255:ADC #1:SEC:STA count2
+	LDX count1:BMI plotball_core
+	
+	.countsequal
+	INC length1_sm+1
+	INC data1odd_sm+1
+	INC data1even_sm+1
+	.length1_sm LDA lengths1:STA count1
+	
+	.plotblock
+	TXA:BEQ nextblock
+
+	.data1odd_sm LDA data1odd-1
+	.data2odd_sm EOR data2odd-1
+	BEQ skipplot
+	STA lineodd_sm+1
+	
+	.data1even_sm LDA data1even-1
+	.data2even_sm EOR data2even-1
+	STA lineeven_sm+1
+	
+	TYA:AND #1:BEQ lineeven_sm
+	.lineodd_sm  LDA #&FF:EOR (screen_sm+1),Y:STA (screen_sm+1),Y:DEY:DEX:BEQ nextblock
+	.lineeven_sm LDA #&FF:EOR (screen_sm+1),Y:.screen_sm STA &FFFF,Y:DEY:BMI differentrow:.donewrap DEX:BNE lineodd_sm
+	BEQ nextblock
+	
+;; This location MUST be &FC
+	IF P%<>&FC
+		PRINT "P% is at", ~P%
+		ERROR "zpcopy_start needs tweaking"
+	ENDIF
+	EQUB 0
+	
+	.differentrow
+	DEC screen_sm+2:DEC screen_sm+2
+	LDY #7:JMP donewrap
+	
+
+
+	.plotballfinished
+	RTS
+
+; This is the core of the code which plots/erases balls
+; It iterates through the range of columns containing balls, plotting the deltas between old and new
+
+.plotball_core
+
+	.setupball1
+	LDA column:CMP columnend1:BCS notball1
+	
+	CMP columnmiddle1:BNE nothalfway1
+	LDA data1even+2:AND #&55:STA data1even+1:STA data1even+3
+	LDA data1odd+2:AND #&55:STA data1odd+1:STA data1odd+3
+	.nothalfway1
+	LDX ball1data
+	.indecball1data_sm INC ball1data
+	LDA ball_single_pixels,X:STA lengths1+0:STA lengths1+2
+	LDA ball_full_bytes,X:STA lengths1+1
+	CLC:LDA ball_leading_space,X:.offset1_sm ADC #0:STA count1:BCC setupball2
+	.notball1
+	CMP columnend2:BCS plotballfinished
+	LDA #255:STA count1
+	
+	.setupball2
+	LDA column:CMP columnstart2:BCC notball2
+	CMP columnend2:BCS notball2_checkfinish
+	
+	CMP columnmiddle2:BNE nothalfway2
+	LDA data2even+2:AND #&55:STA data2even+1:STA data2even+3
+	LDA data2odd+2:AND #&55:STA data2odd+1:STA data2odd+3
+	.nothalfway2
+	LDX ball2data
+	.indecball2data_sm INC ball2data
+	LDA ball_single_pixels,X:STA lengths2+0:STA lengths2+2
+	LDA ball_full_bytes,X:STA lengths2+1
+	CLC:LDA ball_leading_space,X:.offset2_sm ADC #0::STA count2:BCC doneballssetup
+	.notball2_checkfinish
+	CMP columnend1:BCS plotballfinished
+	.notball2
+	LDA #255:STA count2
+	
+	.doneballssetup
+	
+	; For each column we have to reset these self-modified pointers
+	LDA #lengths1-1:STA length1_sm+1
+	LDA #lengths2-1:STA length2_sm+1
+	LDA #data1odd-1:STA data1odd_sm+1
+	LDA #data2odd-1:STA data2odd_sm+1
+	LDA #data1even-1:STA data1even_sm+1
+	LDA #data2even-1:STA data2even_sm+1
+
+	; C is always clear here
+	LDA write:STA screen_sm+1:ADC #8:STA write
+	LDA write+1:STA screen_sm+2:ADC #0:STA write+1
+
+	SEC
+	.startline_sm LDY #0
+	JMP plotballcolumn
+	
+.zpcopy_end

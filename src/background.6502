@@ -1,0 +1,72 @@
+\\ background.6502 - the screen's static parts: the walls, the rim's marks and the floor, as plain
+\\ stores, outside the well, so never EORed (model.py's background).
+
+WallEven = Mode2Byte(CodeB, CodeC)		; azure, the checkerboard anchored as the balls' are
+WallOdd = Mode2Byte(CodeC, CodeB)
+RimLeft = Mode2Byte(0, CodeW)			; a white notch on each wall's inner pixel, two lines deep
+RimRight = Mode2Byte(CodeW, 0)
+
+FUNCTION LineAddr(col, line) = ScreenAddr + (line DIV 8) * RowBytes + col * 8 + (line AND 7)
+
+\\ Draw the walls, the rim's marks and the floor onto a black screen. It runs once, so it's plain.
+\\
+\\ Inputs:
+\\     none: the screen black
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.draw_background
+{
+	\\ the walls: both columns, every row
+
+	ZA_AUTO2 left, right				; local: the walls' bytes in this row
+
+	LDA #LO(LineAddr(WallLeftCol, 0)):STA left
+	LDA #LO(LineAddr(WallRightCol, 0)):STA right
+	LDA #HI(LineAddr(WallLeftCol, 0)):STA left+1
+	LDA #HI(LineAddr(WallRightCol, 0)):STA right+1
+	LDX #ScreenRows
+.wallrow
+	LDY #7
+.wallline
+	TYA:LSR A							; C: the line's parity (each row starts on an even line)
+	LDA #WallEven
+	BCC wallput
+	LDA #WallOdd
+.wallput
+	STA (left),Y:STA (right),Y
+	DEY:BPL wallline
+	CLC:LDA left+1:ADC #HI(RowBytes):STA left+1
+	CLC:LDA right+1:ADC #HI(RowBytes):STA right+1
+	DEX:BNE wallrow
+	ASSERT LO(RowBytes) == 0, "a row is whole pages"
+
+	\\ the rim's marks
+
+	LDA #RimLeft:STA LineAddr(WallLeftCol, RimLine - 1):STA LineAddr(WallLeftCol, RimLine)
+	LDA #RimRight:STA LineAddr(WallRightCol, RimLine - 1):STA LineAddr(WallRightCol, RimLine)
+
+	\\ the floor: its row from the left wall to the right, one run of bytes, a line's parity its
+	\\ offset's
+
+	FloorBytes = (WallRightCol + 1 - WallLeftCol) * 8
+	FloorStart = LineAddr(WallLeftCol, FloorLine)
+	LDX #0
+.floorloop
+	LDA #WallEven:STA FloorStart,X
+	LDA #WallOdd:STA FloorStart+1,X
+	INX:INX
+	BNE floorloop						; the first 256, then the rest
+	ASSERT FloorBytes > 256 AND FloorBytes < 512, "the floor: one page and a part"
+	LDX #0
+.floorrest
+	LDA #WallEven:STA FloorStart+256,X
+	LDA #WallOdd:STA FloorStart+257,X
+	INX:INX
+	CPX #FloorBytes-256:BNE floorrest
+
+	\\ the panel's labels
+
+	JMP draw_labels
+}

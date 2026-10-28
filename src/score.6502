@@ -1,0 +1,179 @@
+\\ score.6502 - the panel's text: its labels, and the score and the best, in a 3 x 5 font with each row
+\\ doubled (font.py's), by plain stores: the panel's never EORed.
+
+LabelCol = GenLabelCol
+SpaceGlyph = GenSpaceGlyph
+
+SECTION MainVars
+.Best			SKIP 3					; BCD, low byte first: the best score since the machine started
+ENDSECTION
+
+ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
+
+\\ Draw a glyph: its cell, two byte columns by ten lines, each of its five rows twice.
+\\
+\\ Inputs:
+\\     A: the glyph (font.py's Order)
+\\     X: the cell's left byte column
+\\     Y: its top line
+\\     textcolour: its colour
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.draw_glyph
+{
+	ZA_AUTO2 ptr						; local: the line's row's byte in the column
+	ZA_AUTO1 g, line, n, collo, colhi	; local: the glyph's next row in the tables; the line; lines left;
+										; the column's offset in a row
+	STA g:ASL A:ASL A:CLC:ADC g:STA g	; * 5
+	STY line
+	TXA:ASL A:ASL A:ASL A:STA collo
+	LDA #0:ROL A:STA colhi
+	LDA #10:STA n
+.loop
+	LDY line
+	LDA RowHi,Y:CLC:ADC colhi:STA ptr+1
+	LDA collo:STA ptr
+	TYA:AND #7:TAY
+	LDX g
+	LDA GlyphL,X:AND textcolour:STA (ptr),Y
+	TYA:CLC:ADC #8:TAY					; the right byte column: 8 on
+	LDA GlyphR,X:AND textcolour:STA (ptr),Y
+	INC line
+	LDA n:LSR A:BCC P%+4:INC g			; a row a line pair: the next after an odd count left
+	DEC n:BNE loop
+	RTS
+}
+
+\\ Draw a label: glyph numbers, 255 ending them, from LabelCol across.
+\\
+\\ Inputs:
+\\     A, X: the label's address, low and high bytes
+\\     Y: its top line
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.draw_label
+{
+	ZA_AUTO2 text						; local: the label
+	ZA_AUTO1 i, col, line				; local: the glyph; its cell's column; the line
+
+	STA text:STX text+1
+	STY line
+	LDA #LabelCol:STA col
+	LDA #0:STA i
+.loop
+	LDY i
+	LDA (text),Y:CMP #255:BEQ done
+	LDX col:LDY line
+	JSR draw_glyph
+	INC i
+	INC col:INC col
+	JMP loop
+.done
+	RTS
+}
+
+\\ Draw the panel's labels (draw_background's part).
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.draw_labels
+{
+	LDA #GenTitleColour:STA textcolour
+	LDA #LO(TitleText):LDX #HI(TitleText):LDY #GenTitleLine:JSR draw_label
+	LDA #LO(MassText):LDX #HI(MassText):LDY #GenMassLine:JSR draw_label
+	LDA #GenTextColour:STA textcolour
+	LDA #LO(NextText):LDX #HI(NextText):LDY #GenNextLabel:JSR draw_label
+	LDA #LO(ScoreText):LDX #HI(ScoreText):LDY #GenScoreLabel:JSR draw_label
+	LDA #LO(BestText):LDX #HI(BestText):LDY #GenBestLabel:JMP draw_label
+}
+
+\\ Draw GAME OVER and RETURN (to play again) in the panel.
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.draw_game_over
+{
+	LDA #GenTextColour:STA textcolour
+	LDA #LO(OverText):LDX #HI(OverText):LDY #GenOverLine:JSR draw_label
+	LDA #LO(ReturnText):LDX #HI(ReturnText):LDY #GenReturnLine:JMP draw_label
+}
+
+\\ Draw the score and the best, if the score's changed since they were drawn.
+\\
+\\ Inputs:
+\\     ScoreShown: 0 if they're to be drawn
+\\
+\\ Outputs:
+\\     ScoreShown set; A, X, Y corrupted
+
+.draw_score
+{
+	LDA ScoreShown:BNE done
+	LDA #GenTextColour:STA textcolour
+	LDA #LO(Score):LDX #HI(Score):LDY #GenScoreLine:JSR draw_number
+	LDA #LO(Best):LDX #HI(Best):LDY #GenBestLine:JSR draw_number
+	LDA #1:STA ScoreShown
+.done
+	RTS
+}
+
+\\ Draw a 6-digit BCD number from LabelCol across, its leading noughts as spaces, but for its last digit.
+\\
+\\ Inputs:
+\\     A, X: its address (3 bytes, low first), low and high bytes
+\\     Y: its top line
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.draw_number
+{
+	ZA_AUTO2 num						; local: the number
+	ZA_AUTO1 col, line, byte, digit, started	; local: the cell's column; the line; its byte; the digit (0-5);
+										; non-zero once a digit's been shown
+	STA num:STX num+1
+	STY line
+	LDA #LabelCol:STA col
+	LDA #0:STA started:STA digit
+	LDA #2:STA byte
+.loop
+	LDY byte
+	LDA (num),Y
+	LDX digit:INX:STX digit				; the high nybble first
+	CPX #1:BEQ high:CPX #3:BEQ high:CPX #5:BEQ high
+	DEC byte							; the low nybble: the byte's done after it
+	AND #15								; (Z: the digit's, so after the DEC)
+	JMP gotdigit
+.high
+	LSR A:LSR A:LSR A:LSR A
+.gotdigit
+	BNE show
+	LDX started:BNE show
+	LDX digit:CPX #6:BEQ show			; the last digit always
+	LDA #SpaceGlyph
+	JMP draw
+.show
+	LDX #1:STX started
+.draw
+	LDX col:LDY line
+	JSR draw_glyph
+	INC col:INC col
+	LDA digit:CMP #6:BNE loop
+	RTS
+}
+
+.GlyphL		EQUB GenGlyphL
+.GlyphR		EQUB GenGlyphR
+.NextText	EQUB GenNextText
+.ScoreText	EQUB GenScoreText
+.BestText	EQUB GenBestText
+.OverText	EQUB GenOverText
+.ReturnText	EQUB GenReturnText
+.TitleText	EQUB GenTitleText
+.MassText	EQUB GenMassText

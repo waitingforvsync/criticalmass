@@ -1,0 +1,77 @@
+\\ irq.6502 - the interrupt: the System VIA's CA1, vsync, is its only source. It counts frames for the
+\\ main loop, which runs at 25 fps (D6): an update every other vsync. It reads the keys and plays the
+\\ sound (only the IRQ touches port A); it pulses the size one merge from critical mass (logical 14, P,
+\\ is that size's alone) and flashes every ball white as one explodes.
+
+ZA_AUTO1 vsyncs							; vsyncs counted, mod 256: only the IRQ writes it once running, and
+										; the main loop only reads it (taking it would lose counts)
+
+PulseOn = (CodeP << 4) OR (White EOR 7)	; the pulse's two colours, as &FE21 bytes
+PulseOff = (CodeP << 4) OR (Cyan EOR 7)
+FlashVsyncs = 6							; how long the explosion's flash lasts
+
+SECTION MainVars
+.Flash			SKIP 1					; vsyncs of flash left (game.6502 sets it)
+ENDSECTION
+
+\\ The IRQ1V handler. CA1 is its only source.
+\\
+\\ Inputs:
+\\     Flash: vsyncs of the explosion's flash left
+\\
+\\ Outputs:
+\\     vsyncs: one more; Keys: the keys down; Flash: one less
+\\     A: corrupted (the MOS's entry saved it at &FC); X, Y: preserved
+
+.irq
+{
+	ZA_INTERRUPT
+	CLD									; (the main loop may use decimal mode)
+	LDA #2:STA &FE4D					; system VIA: IFR, clear CA1
+	INC vsyncs
+	TXA:PHA:TYA:PHA
+
+	\\ the keys: each key's number out on port A, its state back in bit 7 (CPY: C clear if it's down),
+	\\ rolled in RETURN first, so Z ends in bit 0; then flipped
+
+	LDA #0
+FOR key = {&49, &00, &42, &61}			; RETURN (drop), SHIFT (slow), X (right), Z (left)
+	LDY #key:STY &FE4F:CPY &FE4F		; system VIA: port A
+	ROL A
+NEXT
+	EOR #&0F:STA Keys
+
+	JSR sound_frame
+	PLA:TAY:PLA:TAX
+
+	\\ the pulse: every 8 vsyncs, white or cyan
+
+	LDA vsyncs:AND #7:BNE pulsed
+	LDA vsyncs:AND #8:BEQ pulseon
+	LDA #PulseOff:STA &FE21				; video ULA: palette
+	JMP pulsed
+.pulseon
+	LDA #PulseOn:STA &FE21
+.pulsed
+
+	\\ the flash: every ball colour white, then the palette back
+
+	LDA Flash:BNE flash
+	LDA &FC
+	RTI
+.flash
+	DEC Flash:BNE whiten
+	JMP restore
+.whiten
+FOR code = {CodeR, CodeG, CodeB, CodeY, CodeM, CodeC, CodeW, CodeP}
+	LDA #(code << 4) OR (White EOR 7):STA &FE21
+NEXT
+	LDA &FC
+	RTI
+.restore
+FOR i = 0..15
+	LDA #GenPalette[i]:STA &FE21
+NEXT
+	LDA &FC
+	RTI
+}

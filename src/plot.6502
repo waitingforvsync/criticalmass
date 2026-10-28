@@ -1,0 +1,549 @@
+\\ plot.6502 - the plotter (D3, after Rich's old/spriteroutine.6502): a ball's change drawn by EOR, so
+\\ each byte goes from old to new once, the one buffer never flickers, and a ball at rest costs nothing.
+\\
+\\ Two ways, by whether the colour changes:
+\\ - The same colour (a move, or a merge's growth): the colour is anchored to the screen, so a pixel
+\\   column's change is the symmetric difference of its old and new spans, [a0, a1) and [b0, b1): two
+\\   bands, [min(a0, b0), max(a0, b0)) and [min(a1, b1), max(a1, b1)). EOR keeps that right even if the
+\\   spans don't overlap. A column with only one span has it as its one band.
+\\ - New, gone or recoloured: each ball alone, from its byte columns' runs (plot_runs).
+
+ZA_AUTO2 eorptr							; eor_up's: the row's byte in the column
+
+\\ EOR lines up the screen, the even and odd lines' data alternating.
+\\
+\\ Inputs:
+\\     X: how many lines, 1-255
+\\     Y, eorptr: the bottom line's place in its row (0-7), and the row's byte in the column
+\\     odddata+1, evendata+1: the data for odd and even lines (self-modified)
+\\
+\\ Outputs:
+\\     Y, eorptr: the line above the top one
+\\     A, X: corrupted
+
+.eor_up
+{
+	TYA:LSR A:BCC evenline
+.oddline
+.odddata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the odd lines' data
+	DEY									; (an odd line is never a row's 0)
+	DEX:BEQ done
+.evenline
+.evendata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the even lines' data
+	DEY:BMI rowup
+	DEX:BNE oddline
+	SAME_PAGE oddline
+.done
+	RTS
+.rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1			; a row up
+	DEX:BNE oddline
+	SAME_PAGE oddline
+	RTS
+}
+
+\\ eor_up twice more, for the pixel path: one for left pixels and one for right, each with its data
+\\ patched once a call.
+
+.eor_left
+{
+	TYA:LSR A:BCC evenline
+.oddline
+.odddata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the odd lines' data
+	DEY									; (an odd line is never a row's 0)
+	DEX:BEQ done
+.evenline
+.evendata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the even lines' data
+	DEY:BMI rowup
+	DEX:BNE oddline
+	SAME_PAGE oddline
+.done
+	RTS
+.rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1			; a row up
+	DEX:BNE oddline
+	SAME_PAGE oddline
+	RTS
+}
+
+.eor_right
+{
+	TYA:LSR A:BCC evenline
+.oddline
+.odddata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the odd lines' data
+	DEY									; (an odd line is never a row's 0)
+	DEX:BEQ done
+.evenline
+.evendata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the even lines' data
+	DEY:BMI rowup
+	DEX:BNE oddline
+	SAME_PAGE oddline
+.done
+	RTS
+.rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1			; a row up
+	DEX:BNE oddline
+	SAME_PAGE oddline
+	RTS
+}
+
+\\ Draw a ball's change: take its old drawing away and put the new one in.
+\\
+\\ Inputs:
+\\     shapea, coloura, pxa, linea: the old drawing: its shape (0: none), colour (a size), left pixel
+\\         and top line, on the screen; wholly on it (0 <= line, line + height <= 224, px + width <= 128)
+\\     shapeb, colourb, pxb, lineb: the new one, likewise
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.plot_ball
+{
+	ZA_AUTO1 shapea, coloura, pxa, linea	; in: the old drawing
+	ZA_AUTO1 shapeb, colourb, pxb, lineb	; in: the new
+
+	LDA shapea:BEQ newonly
+	LDA shapeb:BEQ oldaway
+	LDA coloura:CMP colourb:BEQ samecolour
+
+	\\ recoloured: the old away, then the new in
+
+	JSR oldaway
+.newonly
+	LDA shapeb:BEQ nothing
+	STA plot_runs.shape
+	LDA colourb:STA plot_runs.colour
+	LDA pxb:STA plot_runs.px
+	LDA lineb:STA plot_runs.line
+	JMP plot_runs
+.oldaway
+	LDA shapea:STA plot_runs.shape
+	LDA coloura:STA plot_runs.colour
+	LDA pxa:STA plot_runs.px
+	LDA linea:STA plot_runs.line
+	JMP plot_runs
+.nothing
+	RTS
+
+	\\ the same colour: straight up or down, or each pixel column's spans
+
+.samecolour
+	LDA shapea:CMP shapeb:BNE pixels
+	LDA pxa:CMP pxb:BNE pixels
+	JMP plot_vertical
+.pixels
+	ZA_AUTO1 xmin, xmax					; local: the pixel columns either covers; the last + 1
+	ZA_AUTO1 ia, ib						; local: each's next pixel column's place in PixTop
+	ZA_AUTO1 t							; local: ball a's line here, its span's top and then its bottom
+	ZA_AUTO1 npix, colhi				; local: pixel columns left; the byte column's offset's high byte
+
+	\\ the columns either covers, and each ball's place in its table at the first; too far apart for
+	\\ the tables' padding (PixPad empty columns either side), the old away and the new in
+
+	LDA pxa:CMP pxb:BCC P%+4:LDA pxb
+	STA xmin
+	LDX shapea
+	LDA pxa:CLC:ADC Widths,X:STA xmax
+	LDX shapeb
+	LDA pxb:CLC:ADC Widths,X
+	CMP xmax:BCC P%+4:STA xmax
+
+	LDX shapea
+	LDA pxa:SEC:SBC xmin				; how far in from xmin a's first column is
+	CMP #GenPixPad+1:BCS far
+	EOR #&FF:SEC:ADC PixOffset,X:STA ia	; PixOffset - that
+	LDA xmax:SEC:SBC pxa:SBC Widths,X	; how far past a's last column xmax is (C set: no borrow)
+	CMP #GenPixPad+1:BCS far
+	LDX shapeb
+	LDA pxb:SEC:SBC xmin
+	CMP #GenPixPad+1:BCS far
+	EOR #&FF:SEC:ADC PixOffset,X:STA ib
+	LDA xmax:SEC:SBC pxb:SBC Widths,X
+	CMP #GenPixPad+1:BCC near
+.far
+	JSR oldaway
+	JMP newonly
+.near
+
+	\\ the colour's data, for a left pixel and a right one, and the first byte column
+
+	LDY coloura
+	LDA ColourEven,Y:AND #&AA:STA lt_even+1:STA lb_even+1
+	LDA ColourOdd,Y:AND #&AA:STA lt_odd+1:STA lb_odd+1
+	LDA ColourEven,Y:AND #&55:STA rt_even+1:STA rb_even+1
+	LDA ColourOdd,Y:AND #&55:STA rt_odd+1:STA rb_odd+1
+	LDA xmax:SEC:SBC xmin:STA npix
+	LDA ib:SEC:SBC ia					; b's place from a's (PixTop and PixBot page-aligned)
+	STA lt_bop+1:STA rt_bop+1:STA lb_bop+1:STA rb_bop+1
+	LDA #0:SBC #0:TAX					; &FF if negative
+	CLC:ADC #HI(PixTop):STA lt_bop+2:STA rt_bop+2
+	TXA:CLC:ADC #HI(PixBot):STA lb_bop+2:STA rb_bop+2
+	LDA xmin:AND #&FE:ASL A:ASL A		; its byte column * 8: C the high bit
+	STA eorptr
+	LDA #0:ROL A:STA colhi
+	LDA xmin:LSR A:BCC leftpixel
+	JMP rightpixel
+
+	\\ a left pixel: its spans, then the bands between their tops and between their bottoms
+
+.leftpixel
+	LDX ia
+	LDA PixTop,X:CLC:ADC linea:STA t		; a's line
+.lt_bop
+	LDA PixTop,X:ADC lineb			; self-modified base: b's line (C clear: no carries)
+	CMP t:BEQ lefttopdone
+	BCC lt_a
+	TAY:SBC t:TAX						; b lower: b - a lines, up from b - 1
+	JMP lt_go
+.lt_rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1
+	DEX:BNE lt_odd
+	SAME_PAGE lt_odd
+	JMP lefttopdone
+.lt_a
+	EOR #&FF:SEC:ADC t:TAX				; a lower: a - b lines, up from a - 1
+	LDY t
+.lt_go
+	DEY:LDA RowHi,Y:ORA colhi:STA eorptr+1
+	TYA:AND #7:TAY
+	LSR A:BCC lt_even
+.lt_odd
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY
+	DEX:BEQ lefttopdone
+.lt_even
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY:BMI lt_rowup
+	DEX:BNE lt_odd
+	SAME_PAGE lt_odd
+.lefttopdone
+	LDX ia
+	LDA PixBot,X:CLC:ADC linea:STA t		; a's line
+.lb_bop
+	LDA PixBot,X:ADC lineb			; self-modified base: b's line (C clear: no carries)
+	CMP t:BEQ leftbottomdone
+	BCC lb_a
+	TAY:SBC t:TAX						; b lower: b - a lines, up from b - 1
+	JMP lb_go
+.lb_rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1
+	DEX:BNE lb_odd
+	SAME_PAGE lb_odd
+	JMP leftbottomdone
+.lb_a
+	EOR #&FF:SEC:ADC t:TAX				; a lower: a - b lines, up from a - 1
+	LDY t
+.lb_go
+	DEY:LDA RowHi,Y:ORA colhi:STA eorptr+1
+	TYA:AND #7:TAY
+	LSR A:BCC lb_even
+.lb_odd
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY
+	DEX:BEQ leftbottomdone
+.lb_even
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY:BMI lb_rowup
+	DEX:BNE lb_odd
+	SAME_PAGE lb_odd
+.leftbottomdone
+	INC ia
+	DEC npix:BNE rightpixel
+	RTS
+
+	\\ a right pixel, likewise
+
+.rightpixel
+	LDX ia
+	LDA PixTop,X:CLC:ADC linea:STA t		; a's line
+.rt_bop
+	LDA PixTop,X:ADC lineb			; self-modified base: b's line (C clear: no carries)
+	CMP t:BEQ righttopdone
+	BCC rt_a
+	TAY:SBC t:TAX						; b lower: b - a lines, up from b - 1
+	JMP rt_go
+.rt_rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1
+	DEX:BNE rt_odd
+	SAME_PAGE rt_odd
+	JMP righttopdone
+.rt_a
+	EOR #&FF:SEC:ADC t:TAX				; a lower: a - b lines, up from a - 1
+	LDY t
+.rt_go
+	DEY:LDA RowHi,Y:ORA colhi:STA eorptr+1
+	TYA:AND #7:TAY
+	LSR A:BCC rt_even
+.rt_odd
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY
+	DEX:BEQ righttopdone
+.rt_even
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY:BMI rt_rowup
+	DEX:BNE rt_odd
+	SAME_PAGE rt_odd
+.righttopdone
+	LDX ia
+	LDA PixBot,X:CLC:ADC linea:STA t		; a's line
+.rb_bop
+	LDA PixBot,X:ADC lineb			; self-modified base: b's line (C clear: no carries)
+	CMP t:BEQ rightbottomdone
+	BCC rb_a
+	TAY:SBC t:TAX						; b lower: b - a lines, up from b - 1
+	JMP rb_go
+.rb_rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1
+	DEX:BNE rb_odd
+	SAME_PAGE rb_odd
+	JMP rightbottomdone
+.rb_a
+	EOR #&FF:SEC:ADC t:TAX				; a lower: a - b lines, up from a - 1
+	LDY t
+.rb_go
+	DEY:LDA RowHi,Y:ORA colhi:STA eorptr+1
+	TYA:AND #7:TAY
+	LSR A:BCC rb_even
+.rb_odd
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY
+	DEX:BEQ rightbottomdone
+.rb_even
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY:BMI rb_rowup
+	DEX:BNE rb_odd
+	SAME_PAGE rb_odd
+.rightbottomdone
+	INC ia
+
+	\\ the next byte column
+
+	LDA eorptr:CLC:ADC #8:STA eorptr
+	BCC P%+4:INC colhi
+	DEC npix:BEQ done
+	JMP leftpixel
+.done
+	RTS
+}
+
+\\ Draw a ball alone by EOR: in, or away. Each byte column, bottom up from its bottom run, is single,
+\\ full and single runs (shapes.py), with no gaps between them.
+\\
+\\ Inputs:
+\\     shape, colour, px, line: the ball, as plot_ball's
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.plot_runs
+{
+	ZA_AUTO1 shape, colour, px, line	; in: the ball
+	ZA_AUTO2 run						; local: the column's runs
+	ZA_AUTO1 cols, bottom, colhi		; local
+	ZA_AUTO1 single, full, smask, fmask	; local: the column's runs
+
+	LDX shape
+	LDA px:LSR A:STA eorptr				; C: the parity
+	TXA:ROL A:TAY						; 2 * shape + parity
+	LDA RunsLo,Y:STA run
+	LDA RunsHi,Y:STA run+1
+	LDA RunsCols,Y:STA cols
+	LDA line:CLC:ADC Heights,X:STA bottom
+	LDY colour
+	LDA ColourEven,Y:STA eor_up.evendata+1:AND #&AA:STA eor_left.evendata+1
+	LDA ColourEven,Y:AND #&55:STA eor_right.evendata+1
+	LDA ColourOdd,Y:STA eor_up.odddata+1:AND #&AA:STA eor_left.odddata+1
+	LDA ColourOdd,Y:AND #&55:STA eor_right.odddata+1
+	LDA eorptr:ASL A:ASL A:ASL A:STA eorptr	; the byte column * 8
+	LDA #0:ROL A:STA colhi
+
+.column
+	LDY #1:LDA (run),Y:STA single
+	INY:LDA (run),Y:STA full
+	INY:LDA (run),Y:STA smask
+	INY:LDA (run),Y:STA fmask
+	LDY #0
+	LDA bottom:CLC:SBC (run),Y			; the bottom drawn line: bottom - lead - 1
+	TAY
+	LDA RowHi,Y:ORA colhi:STA eorptr+1
+	TYA:AND #7:TAY
+
+	LDX single:BEQ nosingle1
+	BIT smask:BMI s1left
+	JSR eor_right:JMP nosingle1
+.s1left
+	JSR eor_left
+.nosingle1
+	LDX full:BEQ nofull
+	BIT fmask:BPL fright:BVC fleft
+	JSR eor_up:JMP nofull
+.fright
+	JSR eor_right:JMP nofull
+.fleft
+	JSR eor_left
+.nofull
+	LDX single:BEQ nosingle2
+	BIT smask:BMI s2left
+	JSR eor_right:JMP nosingle2
+.s2left
+	JSR eor_left
+.nosingle2
+
+	LDA run:CLC:ADC #5:STA run
+	BCC P%+4:INC run+1
+	LDA eorptr:CLC:ADC #8:STA eorptr
+	BCC P%+4:INC colhi
+	DEC cols:BEQ alldone
+	JMP column
+.alldone
+	RTS
+}
+
+\\ Draw a ball's move straight up or down, its shape, colour and pixel the same: each byte column's run
+\\ boundaries move by dy lines, so its change is a band of dy lines at each, between where it was and
+\\ where it is, its data the difference of the runs either side. The boundaries are listed by shape
+\\ and parity (gendata.py's GenBnd): each an offset from the top and a kind, left pixel (&80), right
+\\ (&01) or both (0); an offset of &FF moves on a byte column. Each kind has its own loop, its data
+\\ patched once a call.
+\\
+\\ Inputs:
+\\     plot_ball.shapea, coloura, pxa, linea: the old drawing
+\\     plot_ball.lineb: the new one's top line (its shape, colour and pixel the same)
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.plot_vertical
+{
+	ZA_AUTO1 lowerm1, dy				; local: the lower top line - 1; the move, lines
+	ZA_AUTO1 colhi, bi, nb				; local: the byte column's offset's high byte; the boundary; how many
+
+	\\ the move, and the lower drawing's top
+
+	LDA plot_ball.lineb:SEC:SBC plot_ball.linea
+	BNE moved
+	RTS
+.moved
+	BCS down
+	EOR #&FF:ADC #1
+	STA dy
+	LDX plot_ball.linea:DEX:STX lowerm1
+	JMP gotdy
+.down
+	STA dy
+	LDX plot_ball.lineb:DEX:STX lowerm1
+.gotdy
+
+	\\ the colour's data in each loop, the shape's list, and the first byte column
+
+	LDY plot_ball.coloura
+	LDA ColourEven,Y:STA vb_even+1:AND #&AA:STA vl_even+1
+	LDA ColourEven,Y:AND #&55:STA vr_even+1
+	LDA ColourOdd,Y:STA vb_odd+1:AND #&AA:STA vl_odd+1
+	LDA ColourOdd,Y:AND #&55:STA vr_odd+1
+	LDA plot_ball.pxa:LSR A:PHP:TAX		; the column; C the parity
+	LDA plot_ball.shapea:PLP:ROL A:TAY	; 2 * shape + parity
+	LDA BndCount,Y:STA nb
+	LDA BndStartLo,Y:STA off_op+1
+	CLC:ADC #LO(BndKind - BndOff):STA kind_op+1
+	LDA BndStartHi,Y:STA off_op+2
+	ADC #HI(BndKind - BndOff):STA kind_op+2
+	TXA:ASL A:ASL A:ASL A:STA eorptr
+	LDA #0:ROL A:STA colhi
+	LDX #0
+	JMP band
+
+	\\ each boundary: the band of dy lines above it in the lower drawing, by its kind's loop
+
+.advance
+	LDA eorptr:CLC:ADC #8:STA eorptr
+	BCC P%+4:INC colhi
+	INX
+.band
+	STX bi
+.off_op
+	LDA BndOff,X						; self-modified base
+	BMI advance
+	CLC:ADC lowerm1:TAY
+	LDA RowHi,Y:ORA colhi:STA eorptr+1
+.kind_op
+	LDA BndKind,X						; self-modified base
+	BMI vleft
+	BNE vright
+	TYA:AND #7:TAY:LDX dy				; both pixels
+	LSR A:BCC vb_even
+.vb_odd
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY
+	DEX:BEQ bdone
+.vb_even
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY:BMI vb_rowup
+	DEX:BNE vb_odd
+	SAME_PAGE vb_odd
+	JMP bdone
+.vb_rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1
+	DEX:BNE vb_odd
+	SAME_PAGE vb_odd
+	JMP bdone
+
+.vleft
+	TYA:AND #7:TAY:LDX dy				; the left pixel
+	LSR A:BCC vl_even
+.vl_odd
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY
+	DEX:BEQ bdone
+.vl_even
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY:BMI vl_rowup
+	DEX:BNE vl_odd
+	SAME_PAGE vl_odd
+	JMP bdone
+.vl_rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1
+	DEX:BNE vl_odd
+	SAME_PAGE vl_odd
+	JMP bdone
+
+.vright
+	TYA:AND #7:TAY:LDX dy				; the right pixel
+	LSR A:BCC vr_even
+.vr_odd
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY
+	DEX:BEQ bdone
+.vr_even
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified
+	DEY:BMI vr_rowup
+	DEX:BNE vr_odd
+	SAME_PAGE vr_odd
+	BEQ bdone
+.vr_rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1
+	DEX:BNE vr_odd
+	SAME_PAGE vr_odd
+
+.bdone
+	LDX bi:INX:CPX nb:BEQ alldone
+	JMP band
+.alldone
+	RTS
+}

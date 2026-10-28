@@ -1,0 +1,39 @@
+\\ boot.6502 - !BOOT, *RUN by SHIFT-BREAK (the disc's *OPT 4,2): a title in MODE 7 while MASS loads,
+\\ then *RUN MASS. Baron assembles this file on its own.
+
+BootOrg = &1100
+
+SECTION Boot, filename = "!BOOT", org = BootOrg, load = &FFFF0000+BootOrg, exec = &FFFF0000+boot_entry
+
+\\ Show the title, and *RUN MASS.
+\\
+\\ Inputs:
+\\     none
+\\
+\\ Outputs:
+\\     none: it never returns
+
+.boot_entry
+{
+	LDA #15:LDX #0:JSR &FFF4			; flush all buffers
+	LDX #0
+.textloop
+	LDA text,X:JSR &FFEE				; OSWRCH
+	INX
+	CPX #textend - text:BNE textloop
+	LDX #LO(command):LDY #HI(command)
+	JMP &FFF7							; OSCLI
+
+.command
+	EQUS "RUN MASS", 13
+
+.text
+	EQUB 22, 7							; MODE 7
+	EQUB 23, 1, 0, 0, 0, 0, 0, 0, 0, 0	; the cursor off
+	EQUB 31, 11, 10, 141, 131, "CRITICAL MASS"
+	EQUB 31, 11, 11, 141, 131, "CRITICAL MASS"
+	EQUB 31, 15, 14, 130, "loading"
+.textend
+}
+
+ENDSECTION

@@ -1,0 +1,59 @@
+\\ shapes.6502 - the balls' shapes and colours, from the model (build/gen/data.6502, tools/gendata.py).
+
+\\ By 2 * shape + parity: where its columns' runs start, and how many columns. A column's runs are five
+\\ bytes: lead, single, full, smask, fmask (shapes.py).
+
+.RunsLo
+	EQUB LO(Runs + GenRunsOffset)
+.RunsHi
+	EQUB HI(Runs + GenRunsOffset)
+.RunsCols
+	EQUB GenRunsCols
+
+\\ By shape: its height in lines
+
+.Heights
+	EQUB GenHeights
+
+\\ By colour (a size): the byte with both pixels set, on even lines and on odd ones (colours.py)
+
+.ColourEven
+	EQUB GenColourEven
+.ColourOdd
+	EQUB GenColourOdd
+
+.Runs
+	EQUB GenRuns
+
+\\ By shape: its width in pixels, and where its pixel columns start in PixTop and PixBot
+
+.Widths
+	EQUB GenWidths
+.PixOffset
+	EQUB GenPixOffset
+
+\\ Each shape's pixel columns: the first line set, and the line after the last, from its top
+
+ALIGN &100
+.PixTop
+	EQUB GenPixTop
+ALIGN &100
+.PixBot
+	EQUB GenPixBot
+
+\\ By line: the high byte of its row's start (a row is two pages)
+
+INPAGE 224
+.RowHi
+	EQUB HI(ScreenAddr) + ((0..ScreenRows * 8 - 1) DIV 8) * 2
+
+.BndOff
+	EQUB GenBndOff
+.BndKind
+	EQUB GenBndKind
+.BndStartLo
+	EQUB LO(BndOff + GenBndStart)
+.BndStartHi
+	EQUB HI(BndOff + GenBndStart)
+.BndCount
+	EQUB GenBndCount

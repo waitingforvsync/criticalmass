@@ -1,0 +1,32 @@
+\\ constants.6502 - the screen's geometry and the well's, in the model's units (docs/model.md), and the
+\\ palette's codes (D10).
+
+\\ The screen: MODE 2, 64 characters by 28 rows, ending at &8000 (P1)
+
+ScreenColumns = 64						; byte columns: 128 MODE 2 pixels
+ScreenRows = 28
+RowBytes = ScreenColumns * 8			; 512
+ScreenBytes = RowBytes * ScreenRows		; &3800
+ScreenAddr = &8000 - ScreenBytes		; &4800
+ScreenHSyncPos = 98 - (80 - ScreenColumns) DIV 2
+ScreenVSyncPos = 35 - (32 - ScreenRows) DIV 2
+VSyncPulseWidth = 2
+
+\\ The well: byte columns 2 to 33 inside, the walls at 1 and 34, the floor the bottom row. A unit is a
+\\ scanline, half a MODE 2 pixel (P2): x counts from the screen's left edge, y from its top.
+
+WallLeftCol = 1
+WellCol = 2
+WellColumns = 32
+WallRightCol = WellCol + WellColumns
+FloorRow = 27
+FloorLine = FloorRow * 8
+RimLine = 32							; a ball poking above this, touching another, is failing
+
+\\ The ball codes: the odd-parity logical colours (D10), and the physical colours (colours.py)
+
+CodeR = 1:CodeG = 2:CodeB = 4:CodeY = 7:CodeM = 8:CodeC = 11:CodeW = 13:CodeP = 14
+
+\\ The physical colours, in the ULA's numbering
+
+Black = 0:Red = 1:Green = 2:Yellow = 3:Blue = 4:Magenta = 5:Cyan = 6:White = 7

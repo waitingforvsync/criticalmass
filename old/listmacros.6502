@@ -1,0 +1,59 @@
+\\ Some handy macros for doing list management
+
+
+; Remove (delink) the ball at index X
+; X = node index
+; Corrupts Y
+
+MACRO MACRO_remove_X
+
+	LDY ball_prev,X
+	LDA ball_next,X:STA ball_next,Y
+	TAY
+	LDA ball_prev,X:STA ball_prev,Y
+
+ENDMACRO
+
+
+; Add ball at index X after the ball at index Y
+; X = node index to add
+; Y = previous node index
+
+MACRO MACRO_add_X_after_Y
+
+	TYA:STA ball_prev,X
+	LDA ball_next,Y:STA ball_next,X
+	TXA:STA ball_next,Y
+	LDY ball_next,X:STA ball_prev,Y
+
+ENDMACRO
+
+
+; Add ball at index X before the ball at index Y
+; X = node index to add
+; Y = next node index
+
+MACRO MACRO_add_X_before_Y
+
+	TYA:STA ball_next,X
+	LDA ball_prev,Y:STA ball_prev,X
+	TXA:STA ball_prev,Y
+	LDY ball_prev,X:STA ball_next,Y
+
+ENDMACRO
+
+
+; Rename ball X to ball Y
+; Use this if a linked ball's data is copied to a new slot
+; X = current node index
+; Y = node index to rename to
+
+MACRO MACRO_move_X_to_Y
+
+	LDA prev,X:STA prev,Y
+	LDA next,X:STA next,Y
+	TYA
+	LDY prev,X:STA next,Y
+	LDY next,X:STA prev,Y
+	
+ENDMACRO

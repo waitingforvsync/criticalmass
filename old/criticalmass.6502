@@ -1,0 +1,15 @@
+INCLUDE "boot.6502"
+
+INCLUDE "defines.6502"
+INCLUDE "spriteroutine.6502"
+INCLUDE "listmacros.6502"
+
+ORG codestart
+INCLUDE "aligneddata.6502"
+INCLUDE "main.6502"
+INCLUDE "irq.6502"
+
+\\ Anything from here can be trashed after it has been executed
+INCLUDE "entry.6502"
+
+SAVE "MASS", codestart, P%, entry

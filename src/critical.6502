@@ -1,0 +1,27 @@
+\\ critical.6502 - MASS: main RAM's code packed by ZX02, then the loader, which runs where MASS loads (in
+\\ the screen's memory, unused while it loads) and unpacks it to CodeOrg.
+
+INCLUDE "zx02.6502"						; the compressor, as FUNCTIONs: MainCode's section transform
+INCLUDE "constants.6502"
+INCLUDE "memory.6502"
+INCLUDE "macros.6502"
+INCLUDE "../build/gen/data.6502"
+
+SECTION Mass, org = LoadAddr, load = &FFFF0000+LoadAddr, exec = &FFFF0000+entry, filename = "MASS", guard = &7C00
+.maincode_image
+	SECTION MainCode, org = CodeOrg, guard = ScreenAddr, transform = "zx02"
+		INCLUDE "plot.6502"					; first: its hot loops' page crossings checked (SAME_PAGE)
+		INCLUDE "irq.6502"
+		INCLUDE "main.6502"
+		INCLUDE "background.6502"
+		INCLUDE "physics.6502"
+		INCLUDE "game.6502"
+		INCLUDE "score.6502"
+		INCLUDE "sound.6502"
+		INCLUDE "shapes.6502"
+		INCLUDE "balls.6502"
+	ENDSECTION
+.maincode_end
+
+	INCLUDE "entry.6502"
+ENDSECTION

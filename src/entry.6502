@@ -1,0 +1,141 @@
+\\ entry.6502 - the loader, MASS's entry point (teddyboy's and exhale's): takes the machine over, unpacks
+\\ main RAM's code to where it runs, makes the tables, sets the hardware up and starts the game.
+
+\\ MASS loads into the screen's memory, above all of main RAM's code, so unpacking it never reaches the
+\\ packed image or the loader. main clears the screen, the loader with it.
+
+ASSERT maincode_image >= ScreenAddr, "the packed image lies above where it unpacks to"
+
+\\ Take the machine over, unpack the code, make the tables, set the hardware up, and run the game.
+\\
+\\ Inputs:
+\\     none: *RUN by !BOOT
+\\
+\\ Outputs:
+\\     none: it goes on to main
+
+.entry
+{
+	ZA_ENTRY
+	CLD
+	CLI
+
+	\\ Shut down the OS (no zero page: the MOS's IRQs still run, and the pool includes its bytes)
+
+	LDA &FFB7:STA defaults+1
+	LDA &FFB8:STA defaults+2
+	LDY #10
+.defaults
+	LDA &FFFF,Y:STA &20A-10,Y			; self-modified: the MOS's default vectors
+	INY:CPY #12:BNE defaults			; Fetch default OSBYTE vector
+
+	LDA #16:LDX #0:JSR &FFF4			; Disable ADC
+	LDA #143:LDX #12:LDY #255:JSR &FFF4	; claim NMIs
+	LDA #140:LDX #0:JSR &FFF4			; select tape filing system for safety
+	LDA #19:JSR &FFF4					; wait for vsync before changing CRTC
+
+	SEI
+	LDX #&FF:TXS
+	LDA #&40:STA NmiOrg					; RTI, for stray NMIs
+
+	\\ Set CRTC values, the display off
+
+	LDX #13
+.setcrtcloop
+	STX &FE00
+	LDA crtcregs,X:STA &FE01
+	DEX
+	BPL setcrtcloop
+
+	\\ Set Video ULA MODE 2, every colour black until the screen's drawn
+
+	LDA #&F4:STA &FE20
+	LDX #15
+.setpalloop
+	TXA:ASL A:ASL A:ASL A:ASL A:ORA #7
+	STA &FE21
+	DEX
+	BPL setpalloop
+
+	\\ Unpack main RAM's code to where it runs
+
+	LDA #LO(maincode_image):STA zx.src
+	LDA #HI(maincode_image):STA zx.src+1
+	LDA #LO(CodeOrg):STA zx.dst
+	LDA #HI(CodeOrg):STA zx.dst+1
+	JSR zx.unpack
+
+	\\ The tables
+
+	JSR make_tables
+
+	\\ Set up VIAs, and the ACIA's interrupts off (a *FX2 left over could have turned them on)
+
+	LDA #3:STA &FE08					; ACIA: master reset
+	LDA #&7F:STA &FE4E:STA &FE6E		; disable all VIA interrupts
+	STA &FE4D:STA &FE6D					; and clear all VIA flags
+	STA &FE43							; keyboard write bits 0-6
+	LDA #&0F:STA &FE42					; gain access to the addressable latch
+	LDX #&03:STX &FE40					; keyboard autoscan off
+	INX:STX &FE4C						; default PCR
+
+	\\ The interrupt: vsync only
+
+	LDA #LO(irq):STA &204
+	LDA #HI(irq):STA &205
+	LDA #0:STA vsyncs
+
+	LDA #2:STA &FE4D					; clear CA1, and enable it alone
+	LDA #&82:STA &FE4E					; system VIA: IER, CA1
+	CLI
+	JMP main
+}
+
+.crtcregs
+	EQUB 127							; CRTC R0 - horizontal total
+	EQUB ScreenColumns					; CRTC R1 - horizontal displayed
+	EQUB ScreenHSyncPos					; CRTC R2 - horizontal sync pos
+	EQUB 8 + (VSyncPulseWidth << 4)		; CRTC R3 - sync width
+	EQUB 38								; CRTC R4 - vertical total
+	EQUB 0								; CRTC R5 - vertical total adjust
+	EQUB ScreenRows						; CRTC R6 - vertical displayed
+	EQUB ScreenVSyncPos					; CRTC R7 - vertical sync pos
+	EQUB &F0							; CRTC R8 - interlace off, display off, no cursor
+	EQUB 7								; CRTC R9 - scan lines per character
+	EQUB 32								; CRTC R10 - cursor start
+	EQUB 7								; CRTC R11 - cursor end
+	EQUB HI(ScreenAddr DIV 8)			; CRTC R12 - screen start address, hi
+	EQUB LO(ScreenAddr DIV 8)			; CRTC R13 - screen start address, lo
+
+
+\\ Make the tables the loader makes: the squares.
+\\
+\\ Inputs:
+\\     none
+\\
+\\ Outputs:
+\\     SqLo, SqHi: v * v for v in 0..255
+\\     A, X: corrupted
+
+.make_tables
+{
+	ZA_AUTO2 square						; local: v * v so far
+
+	LDX #0:STX square:STX square+1
+.sqloop
+	LDA square:STA SqLo,X
+	LDA square+1:STA SqHi,X
+	TXA:SEC:ADC square:STA square		; + v + 1
+	BCC P%+4:INC square+1
+	TXA:CLC:ADC square:STA square		; + v: (v + 1)^2 = v^2 + 2v + 1
+	BCC P%+4:INC square+1
+	INX:BNE sqloop
+	RTS
+}
+
+\\ The decompressor (Baron's example, dmsc's ZX02), for main RAM's code
+
+.zx
+{
+	INCLUDE "dzx02.6502"
+}

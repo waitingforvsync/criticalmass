@@ -1,0 +1,687 @@
+\\ game.6502 - the game around the physics, as game.py does it: the keys and the dropper, merges, critical
+\\ mass, failing and the score; then each ball drawn where it should be, with hysteresis.
+
+DropCooldown = 8						; frames: the original's 20 at 60 Hz
+FailFrames = 50							; the original's 120
+CriticalHold = 6						; frames the critical ball shows before it explodes
+HoldWait = 50							; frames the held ball waits at most for the last drop to fall clear
+ChainFrames = 75						; merges this soon after an explosion are a chain
+DropperSpeed = 1966						; 8.8 units a frame: the original's 2 px a frame
+SlowSpeed = 295							; with the slow key: its 0.3 px
+MaxCritical = 4
+KeyLeft = 1:KeyRight = 2:KeySlow = 4:KeyDrop = 8
+StateFree = 0:StateLive = 1:StateDying = 2
+HeldSlot = MaxBalls						; the drawn records past the balls': the held ball, and the next
+NextSlot = MaxBalls + 1
+NextX = 2 * 95							; the next ball's centre in the panel, units: under NEXT
+NextY = 64
+
+SECTION MainVars
+.Score			SKIP 3					; BCD, low byte first
+.Held			SKIP 1					; the held ball's size, and the next one's
+.Next			SKIP 1
+.DropperX		SKIP 2					; the held ball's centre, 8.8 units
+.Cooldown		SKIP 1					; frames until the next drop
+.HeldGrow		SKIP 1					; the held ball's shape as it grows in (0: hidden)
+.LastDrop		SKIP 1					; the slot last dropped, while it lives (255: none)
+.HoldLeft		SKIP 1					; frames the held ball may still wait for it
+.Released		SKIP 1					; non-zero once the drop key's been let go since a drop
+.Fail			SKIP 1					; frames a ball's been failing
+.Over			SKIP 1					; non-zero: game over
+.ChainLeft		SKIP 1					; frames of a chain left: merges then multiply
+.Chain			SKIP 1					; merges in the chain so far
+.NumCritical	SKIP 1
+.CriticalSlot	SKIP MaxCritical		; critical balls showing, and frames left
+.CriticalLeft	SKIP MaxCritical
+.Seed			SKIP 2					; the random LFSR
+.Keys			SKIP 1					; the keys down (the IRQ's)
+.FrameKeys		SKIP 1					; and as this frame took them
+.ScoreShown		SKIP 1					; non-zero once the score on the screen is right
+ENDSECTION
+
+\\ A random byte: a 16-bit Galois LFSR (taps &B400), shifted eight times (game.py's Rng).
+\\
+\\ Inputs:
+\\     Seed
+\\
+\\ Outputs:
+\\     A: the byte; Seed moved on
+\\     Y: corrupted
+
+.rand
+{
+	LDY #8
+	LDA Seed
+.loop
+	LSR Seed+1:ROR A
+	BCC next
+	PHA
+	LDA Seed+1:EOR #&B4:STA Seed+1
+	PLA
+.next
+	DEY:BNE loop
+	STA Seed
+	RTS
+}
+
+\\ Start a game: no balls, the score nought, two random sizes to drop.
+\\
+\\ Inputs:
+\\     Seed: not 0
+\\
+\\ Outputs:
+\\     the game's state set up; A, X, Y corrupted
+
+.new_game
+{
+	LDX #MaxBalls + 1
+.slots
+	LDA #StateFree:STA BallState,X
+	LDA #0:STA DrawnShape,X
+	DEX:BPL slots
+	LDA #0
+	STA NumBalls:STA NumMerges:STA NumCritical
+	STA Score:STA Score+1:STA Score+2:STA ScoreShown
+	STA Cooldown:STA Fail:STA Over:STA Chain
+	STA ChainLeft:STA HoldLeft
+	LDA #255:STA LastDrop
+	LDA #1:STA Flash					; (the IRQ puts the palette back, in case it was mid-flash)
+	LDA #1:STA Released
+	JSR drop_size:STA Held:STA HeldGrow
+	JSR drop_size:STA Next
+	LDA #LO((WellLeft + WellRight) DIV 2 * 256):STA DropperX
+	LDA #HI((WellLeft + WellRight) DIV 2 * 256):STA DropperX+1
+	RTS
+}
+
+\\ A random size to drop, 1-4.
+\\
+\\ Outputs:
+\\     A: the size; Y corrupted
+
+.drop_size
+{
+	JSR rand
+	AND #3:CLC:ADC #1
+	RTS
+}
+
+\\ A frame of the game: the keys, the physics, merges, explosions and failing (game.py's keys, step and
+\\ after_step), then the drawing.
+\\
+\\ Inputs:
+\\     Keys
+\\
+\\ Outputs:
+\\     the game moved on, and drawn; A, X, Y corrupted
+
+.game_frame
+{
+	LDA Keys:STA FrameKeys				; once: the IRQ writes Keys
+	JSR do_keys
+	JSR physics_step
+	LDA Cooldown:BEQ P%+5:DEC Cooldown
+	LDA ChainLeft:BEQ P%+5:DEC ChainLeft
+	JSR do_merges
+	JSR do_explosions
+	JSR do_fail
+	JMP draw_frame
+}
+
+\\ The frame's drawing: the balls, then the score if it's changed.
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.draw_frame
+{
+	JSR draw_balls
+	JMP draw_score
+}
+
+\\ The keys: move the dropper, and drop on the drop key, if it's been let go since the last drop.
+
+.do_keys
+{
+	LDA FrameKeys:AND #KeySlow:BEQ fast
+	LDX #LO(SlowSpeed):LDY #HI(SlowSpeed)
+	JMP gotspeed
+.fast
+	LDX #LO(DropperSpeed):LDY #HI(DropperSpeed)
+.gotspeed
+	LDA FrameKeys:AND #KeyLeft:BEQ notleft
+	STX t:SEC:LDA DropperX:SBC t:STA DropperX
+	STY t:LDA DropperX+1:SBC t:STA DropperX+1
+.notleft
+	LDA FrameKeys:AND #KeyRight:BEQ notright
+	STX t:CLC:LDA DropperX:ADC t:STA DropperX
+	STY t:LDA DropperX+1:ADC t:STA DropperX+1
+.notright
+	JSR clamp_dropper
+	LDA FrameKeys:AND #KeyDrop:BEQ letgo
+	LDA Released:BEQ done
+	JSR drop
+	BCC done
+	LDA #0:STA Released
+.done
+	RTS
+.letgo
+	LDA #1:STA Released
+	RTS
+	ZA_AUTO1 t							; local: a byte of the speed
+}
+
+\\ Keep the dropper where the held ball fits: a unit clear of each wall.
+\\
+\\ Outputs:
+\\     DropperX; A, Y corrupted
+
+.clamp_dropper
+{
+	LDY Held
+	LDA DropperX:CMP DropLoLo,Y
+	LDA DropperX+1:SBC DropLoHi,Y
+	BCS notlow
+	LDA DropLoLo,Y:STA DropperX
+	LDA DropLoHi,Y:STA DropperX+1
+	RTS
+.notlow
+	LDA DropHiLo,Y:CMP DropperX
+	LDA DropHiHi,Y:SBC DropperX+1
+	BCS nothigh
+	LDA DropHiLo,Y:STA DropperX
+	LDA DropHiHi,Y:STA DropperX+1
+.nothigh
+	RTS
+}
+
+\\ Drop the held ball, if it's grown in, the cooldown's over and there's room.
+\\
+\\ Outputs:
+\\     C: set if it dropped
+\\     A, X, Y: corrupted
+
+.drop
+{
+	LDA Cooldown:BNE no
+	LDA HeldGrow:CMP Held:BCC no
+	LDA NumBalls:CMP #MaxBalls - 10:BCS no
+	JSR alloc:BCC no
+	STX slot
+	LDA Held:STA BallSize,X
+	JSR rand:AND #15:SEC:SBC #8			; jitter, -8 to 7: the original's +-0.05 px
+	LDX slot
+	STA t
+	CLC:LDA DropperX:ADC t:STA BallXLo,X
+	LDA t:AND #&80:BEQ P%+4:LDA #&FF	; its sign
+	ADC DropperX+1:STA BallXHi,X
+	LDY Held
+	LDA HeldYLo,Y:STA BallYLo,X
+	LDA HeldYHi,Y:STA BallYHi,X
+	LDA #255:STA BallAge,X
+	JSR add_ball
+	LDA slot:STA LastDrop
+	LDA #HoldWait:STA HoldLeft
+	LDA Next:STA Held
+	JSR drop_size:STA Next
+	JSR clamp_dropper
+	LDA #DropCooldown:STA Cooldown
+	LDA #SoundDrop:STA SoundReq
+	SEC
+	RTS
+.no
+	CLC
+	RTS
+	ZA_AUTO1 slot, t					; local: the new ball's slot; the jitter
+}
+
+\\ A free slot: the lowest, for a ball made now.
+\\
+\\ Outputs:
+\\     X: the slot; C set, or clear if there's none
+\\     A: corrupted
+
+.alloc
+{
+	LDX #0
+.loop
+	LDA BallState,X:BEQ found			; (StateFree)
+	INX:CPX #MaxBalls:BCC loop
+	CLC
+	RTS
+.found
+	SEC
+	RTS
+}
+
+\\ Make the ball in slot X live: at rest, its pushes nought, last in Order. Its size, position and age
+\\ are set already; its velocity, grow and age can be set after. Its drawn record is left: a free slot's
+\\ is nothing, and a merge's ball, reusing a dying ball's slot, is drawn from where that one was.
+\\
+\\ Inputs:
+\\     X: the slot
+\\
+\\ Outputs:
+\\     A, Y: corrupted
+
+.add_ball
+{
+	LDA #StateLive:STA BallState,X
+	LDA #0
+	STA BallVXLo,X:STA BallVXHi,X:STA BallVYLo,X:STA BallVYHi,X
+	STA BallIXLo,X:STA BallIXHi,X:STA BallIYLo,X:STA BallIYHi,X
+	STA BallHit,X:STA BallGrow,X
+	LDY NumBalls
+	TXA:STA Order,Y
+	INC NumBalls
+	RTS
+}
+
+\\ Take a ball out of play: out of Order, to be erased (dying) and then freed by draw_balls.
+\\
+\\ Inputs:
+\\     X: the slot
+\\
+\\ Outputs:
+\\     A, Y: corrupted; X preserved
+
+.kill_ball
+{
+	LDA #StateDying:STA BallState,X
+	CPX LastDrop:BNE notlast
+	LDA #255:STA LastDrop
+.notlast
+	STX slot
+	LDY #255
+.find
+	INY
+	LDA Order,Y:CMP slot:BNE find
+.shift
+	LDA Order+1,Y:STA Order,Y
+	INY:CPY NumBalls:BCC shift
+	DEC NumBalls
+	RTS
+	ZA_AUTO1 slot						; local
+}
+
+\\ Add to the score, BCD.
+\\
+\\ Inputs:
+\\     A: the points, BCD, 0-99
+\\
+\\ Outputs:
+\\     Score; ScoreShown cleared; A corrupted
+
+.add_score
+{
+	SED
+	CLC:ADC Score:STA Score
+	LDA Score+1:ADC #0:STA Score+1
+	LDA Score+2:ADC #0:STA Score+2
+	CLD
+	LDA #0:STA ScoreShown
+	RTS
+}
+
+\\ The merges the physics found: each pair, if both still live, becomes one of the next size at their
+\\ midpoint, at rest; it scores its size, times the chain if an explosion was this recent.
+
+.do_merges
+{
+	ZA_AUTO1 k, slota, slotb, c, size, times	; local: the merge; the slots; the new size; the repeats
+
+	LDA #0:STA k
+.loop
+	LDX k:CPX NumMerges:BCC more
+	RTS
+.more
+	LDA MergeA,X:STA slota
+	LDA MergeB,X:STA slotb
+	INC k
+	LDX slota:LDA BallState,X:CMP #StateLive:BNE loop
+	LDA BallAge,X:CMP #MergeAge:BCC loop	; (a slot reused this frame by a merge's ball: age 0)
+	LDX slotb:LDA BallState,X:CMP #StateLive:BNE loop
+	LDA BallAge,X:CMP #MergeAge:BCC loop
+	JSR kill_ball
+	LDX slota:JSR kill_ball
+
+	\\ the new ball takes a's slot (none's needed free), drawn from where a was: EOR's deltas come out
+	\\ the same as a away and the new one in. It's clamped: a bigger ball at the midpoint may reach a wall
+
+	STX c
+	LDA BallSize,X:STA size
+	CLC:ADC #1:STA BallSize,X
+	LDY slotb
+	CLC:LDA BallXLo,X:ADC BallXLo,Y:STA t
+	LDA BallXHi,X:ADC BallXHi,Y
+	ROR A:ROR t							; the midpoint: the 17-bit sum halved
+	STA BallXHi,X:LDA t:STA BallXLo,X
+	CLC:LDA BallYLo,X:ADC BallYLo,Y:STA t
+	LDA BallYHi,X:ADC BallYHi,Y
+	ROR A:ROR t
+	STA BallYHi,X:LDA t:STA BallYLo,X
+	LDA #0:STA BallAge,X
+	JSR add_ball
+	JSR clamp_ball
+	LDA #2:STA BallGrow,X				; drawn a size smaller for two frames
+
+	LDA BallSize,X:STA SoundParam
+	LDA #SoundMerge:STA SoundReq
+
+	\\ the chain, and the score
+
+	LDA ChainLeft:BNE chained
+	LDA #0:STA Chain
+	JMP scored
+.chained
+	INC Chain
+.scored
+	LDX Chain:INX:STX times
+.score
+	LDA size:JSR add_score				; (sizes are 1-9: the same in BCD)
+	DEC times:BNE score
+
+	\\ critical: shown whole, then it explodes
+
+	LDX c
+	LDA BallSize,X:CMP #CriticalSize:BNE notcritical
+	LDA #0:STA BallGrow,X
+	LDY NumCritical:CPY #MaxCritical:BCS notcritical
+	TXA:STA CriticalSlot,Y
+	LDA #CriticalHold + 1:STA CriticalLeft,Y
+	INC NumCritical
+.notcritical
+	JMP loop
+	ZA_AUTO1 t							; local
+}
+
+\\ Critical balls explode once they've shown long enough: into a random pattern's pieces, for a bonus,
+\\ starting a chain.
+
+.do_explosions
+{
+	ZA_AUTO1 k, crit, piece				; local: the entry; its ball; the pattern's piece
+
+	LDA #0:STA k
+.loop
+	LDX k:CPX NumCritical:BCC more
+	RTS
+.more
+	DEC CriticalLeft,X:BEQ explode
+	INC k:JMP loop
+.explode
+	LDA CriticalSlot,X:STA crit
+.remove									; (the entry out of the list: the rest move down)
+	LDA CriticalSlot+1,X:STA CriticalSlot,X
+	LDA CriticalLeft+1,X:STA CriticalLeft,X
+	INX:CPX NumCritical:BCC remove
+	DEC NumCritical
+	LDX crit:LDA BallState,X:CMP #StateLive:BNE loop
+	JSR kill_ball
+
+	JSR rand:AND #7:TAX
+	LDA PatternStart,X:STA piece
+.pieces
+	LDY piece
+	LDA PieceSize,Y:BEQ exploded
+	JSR alloc:BCC exploded
+	LDY piece
+	LDA PieceSize,Y:STA BallSize,X
+	STX slot
+	LDY crit
+	CLC:LDA BallXLo,Y:LDY piece:ADC PieceDXLo,Y:LDX slot:STA BallXLo,X
+	LDY crit:LDA BallXHi,Y:LDY piece:ADC PieceDXHi,Y:STA BallXHi,X
+	LDY crit
+	CLC:LDA BallYLo,Y:LDY piece:ADC PieceDYLo,Y:STA BallYLo,X
+	LDY crit:LDA BallYHi,Y:LDY piece:ADC PieceDYHi,Y:STA BallYHi,X
+	LDA #0:STA BallAge,X
+	JSR add_ball
+	LDY piece
+	LDA PieceVXLo,Y:STA BallVXLo,X
+	LDA PieceVXHi,Y:STA BallVXHi,X
+	LDA PieceVYLo,Y:STA BallVYLo,X
+	LDA PieceVYHi,Y:STA BallVYHi,X
+	JSR clamp_ball
+	INC piece
+	JMP pieces
+.exploded
+	SED									; the bonus: 100
+	LDA Score+1:CLC:ADC #1:STA Score+1
+	LDA Score+2:ADC #0:STA Score+2
+	CLD
+	LDA #0:STA ScoreShown
+	LDA #FlashVsyncs:STA Flash			; (the IRQ flashes every ball white)
+	LDA #SoundExplode:STA SoundReq
+	LDA #ChainFrames + 1:STA ChainLeft	; (counted down before a frame's merges)
+	JMP loop
+	ZA_AUTO1 slot						; local
+}
+
+\\ Keep a new piece in the well (physics.py's clamp).
+\\
+\\ Inputs:
+\\     X: the slot
+\\
+\\ Outputs:
+\\     A, Y: corrupted; X preserved
+
+.clamp_ball
+{
+	LDY BallSize,X
+	LDA BallXLo,X:CMP LeftLo,Y
+	LDA BallXHi,X:SBC LeftHi,Y
+	BCS notleft
+	LDA LeftLo,Y:STA BallXLo,X
+	LDA LeftHi,Y:STA BallXHi,X
+.notleft
+	LDA RightLo,Y:CMP BallXLo,X
+	LDA RightHi,Y:SBC BallXHi,X
+	BCS notright
+	LDA RightLo,Y:STA BallXLo,X
+	LDA RightHi,Y:STA BallXHi,X
+.notright
+	LDA BallYLo,X:CMP RadiusLo,Y
+	LDA BallYHi,X:SBC RadiusHi,Y
+	BCS nottop
+	LDA RadiusLo,Y:STA BallYLo,X
+	LDA RadiusHi,Y:STA BallYHi,X
+.nottop
+	LDA FloorLo,Y:CMP BallYLo,X
+	LDA FloorHi,Y:SBC BallYHi,X
+	BCS notfloor
+	LDA FloorLo,Y:STA BallYLo,X
+	LDA FloorHi,Y:STA BallYHi,X
+.notfloor
+	RTS
+}
+
+\\ Failing: a ball poking above the rim while touching another; for FailFrames on end, the game's over.
+
+.do_fail
+{
+	LDY NumBalls:BEQ none
+.loop
+	LDX Order-1,Y
+	LDA BallHit,X:BEQ next
+	STY t
+	LDY BallSize,X
+	LDA BallYLo,X:CMP RimLo,Y			; y < the rim + r: its top's above the rim
+	LDA BallYHi,X:SBC RimHi,Y
+	LDY t
+	BCC failing
+.next
+	DEY:BNE loop
+.none
+	LDA #0:STA Fail
+	RTS
+.failing
+	INC Fail
+	LDA Fail:CMP #FailFrames + 1:BCC notover
+	LDA #1:STA Over
+	LDA #0:STA Released					; RETURN must be let go before it starts another
+	LDA #SoundOver:STA SoundReq
+.notover
+	RTS
+	ZA_AUTO1 t							; local
+}
+
+\\ Draw every ball where it should be (game.py's draw): the dying away, each live one at its place once
+\\ it's moved a pixel across or two lines down from where it was drawn, the held ball over the rim and
+\\ the next in the panel.
+
+.draw_balls
+{
+	ZA_AUTO1 slot, shape, xu, yu		; local
+
+	\\ the dying, away; their slots free
+
+	LDX #MaxBalls - 1
+.dying
+	LDA BallState,X:CMP #StateDying:BNE notdying
+	STX slot
+	LDA #0:STA shape
+	JSR plot_slot
+	LDX slot
+	LDA #StateFree:STA BallState,X
+.notdying
+	DEX:BPL dying
+
+	\\ the live, in Order
+
+	LDY NumBalls:BEQ held
+.live
+	STY index
+	LDX Order-1,Y:STX slot
+	LDA BallSize,X:STA colour
+	LDY BallGrow,X:BEQ full
+	DEC BallGrow,X
+	SEC:SBC #1							; a size smaller while it grows
+.full
+	STA shape
+	LDA BallXHi,X:STA xu
+	LDA BallYHi,X:STA yu
+	LDA DrawnShape,X:CMP shape:BNE moved
+	LDA DrawnColour,X:CMP colour:BNE moved
+	LDA xu:SEC:SBC AnchorX,X			; a pixel across?
+	BCS P%+6:EOR #&FF:ADC #1
+	CMP #2:BCS moved
+	LDA yu:SEC:SBC AnchorY,X			; two lines down?
+	BCS P%+6:EOR #&FF:ADC #1
+	CMP #2:BCC nextlive
+.moved
+	LDA xu:STA AnchorX,X
+	LDA yu:STA AnchorY,X
+	JSR plot_slot
+.nextlive
+	LDY index
+	DEY:BNE live
+
+	\\ the held ball, over the rim, as it grows in
+
+.held
+	LDA #0
+	LDX Over:BNE heldshape
+	JSR held_shape
+.heldshape
+	STA shape
+	LDA Held:STA colour
+	LDA DropperX+1:STA xu
+	LDY Held:LDA HeldYHi,Y:STA yu
+	LDX #HeldSlot:STX slot
+	JSR plot_slot
+
+	\\ the next, in the panel
+
+	LDA Next:STA shape:STA colour
+	LDA #NextX:STA xu
+	LDA #NextY:STA yu
+	LDX #NextSlot:STX slot
+	JMP plot_slot
+
+	ZA_AUTO1 index, colour				; local
+}
+
+\\ Draw a slot's record anew: from what's drawn to shape and colour (shape 0: nothing) at a centre.
+\\
+\\ Inputs:
+\\     draw_balls.slot, shape, colour, xu, yu: the record and where it goes now
+\\
+\\ Outputs:
+\\     DrawnShape and the rest updated; A, X, Y corrupted
+
+.plot_slot
+{
+	LDX draw_balls.slot
+	LDA DrawnShape,X:STA plot_ball.shapea
+	LDA DrawnColour,X:STA plot_ball.coloura
+	LDA DrawnPx,X:STA plot_ball.pxa
+	LDA DrawnLine,X:STA plot_ball.linea
+	LDY draw_balls.shape
+	STY plot_ball.shapeb:TYA:STA DrawnShape,X
+	BEQ nothing
+	LDA draw_balls.colour:STA plot_ball.colourb:STA DrawnColour,X
+	LDA draw_balls.xu:SEC:SBC Widths,Y	; px = (xu - W + 1) >> 1
+	CLC:ADC #1:LSR A
+	STA plot_ball.pxb:STA DrawnPx,X
+	LDA draw_balls.yu:SEC:SBC HalfHeights,Y	; line = yu - floor(H / 2)
+	STA plot_ball.lineb:STA DrawnLine,X
+	JMP plot_ball
+.nothing
+	LDA #0:STA plot_ball.colourb:STA plot_ball.pxb:STA plot_ball.lineb
+	JMP plot_ball
+}
+
+\\ The held ball's shape: hidden while the last drop's still at the rim (for HoldWait frames at most: one
+\\ resting just under the rim mustn't hide it for ever, as hidden it can't be dropped), then grown in a
+\\ shape a frame.
+\\
+\\ Outputs:
+\\     A: the shape (0: hidden); HeldGrow, HoldLeft; X, Y corrupted
+
+.held_shape
+{
+	LDX LastDrop:CPX #255:BEQ grow
+	LDA HoldLeft:BEQ grow
+	DEC HoldLeft
+	LDY BallSize,X
+	LDA BallYLo,X:CMP RimTwoLo,Y		; y - r < (rim + 2) units
+	LDA BallYHi,X:SBC RimTwoHi,Y
+	BCS grow
+	LDA #0:STA HeldGrow
+	RTS
+.grow
+	LDA HeldGrow:CMP Held:BCS full		; min(Held, HeldGrow + 1): the held size may have shrunk
+	INC HeldGrow
+	LDA HeldGrow
+	RTS
+.full
+	LDA Held:STA HeldGrow
+	RTS
+}
+
+\\ The game's tables, by size: from the drawn radius, as they're about what's seen
+
+.DropLoLo	EQUB LO(WellLeft * 256 + GenWallQ * 64 + 256)	; the dropper's limits
+.DropLoHi	EQUB HI(WellLeft * 256 + GenWallQ * 64 + 256)
+.DropHiLo	EQUB LO(WellRight * 256 - GenWallQ * 64 - 256)
+.DropHiHi	EQUB HI(WellRight * 256 - GenWallQ * 64 - 256)
+.HeldYLo	EQUB LO(RimLine * 256 - GenWallQ * 64)		; the held ball's centre: on the rim
+.HeldYHi	EQUB HI(RimLine * 256 - GenWallQ * 64)
+.RimLo		EQUB LO(RimLine * 256 + GenWallQ * 64)		; a centre above this pokes above the rim
+.RimHi		EQUB HI(RimLine * 256 + GenWallQ * 64)
+.RimTwoLo	EQUB LO((RimLine + 2) * 256 + GenWallQ * 64)	; the held ball waits till the drop's below
+.RimTwoHi	EQUB HI((RimLine + 2) * 256 + GenWallQ * 64)
+.HalfHeights	EQUB GenHeights DIV 2
+
+\\ The explosion patterns
+
+.PatternStart	EQUB GenPatternStart
+.PieceSize		EQUB GenPieceSize
+.PieceDXLo		EQUB LO(GenPieceDX)
+.PieceDXHi		EQUB HI(GenPieceDX)
+.PieceDYLo		EQUB LO(GenPieceDY)
+.PieceDYHi		EQUB HI(GenPieceDY)
+.PieceVXLo		EQUB LO(GenPieceVX)
+.PieceVXHi		EQUB HI(GenPieceVX)
+.PieceVYLo		EQUB LO(GenPieceVY)
+.PieceVYHi		EQUB HI(GenPieceVY)

@@ -1,0 +1,98 @@
+screen_height = 28
+screen_vsync_pos = 34
+screen_vsync_width = 2
+screen_base = &8000 - 512 * screen_height
+
+GUARD screen_base
+
+
+play_width_chars = 32		; width of playing area in characters, must be at least 32
+play_height_chars = 27		; height of playing area in characters
+
+
+\\ tables
+
+costab = &300
+reciptablo = &400
+reciptabhi = &500
+mulnegtablo = &600
+mulnegtabhi = &800
+multablo = &A00
+multabhi = &C00		; carefully chosen such that ?&D00 gets an RTI (HI(256*256/4) = &40)
+atantab = &E00
+
+
+\\ ball data
+\\ just fit it in wherever we find room
+
+max_balls = &30
+
+ball_yfrac	= &1B1
+; spare: &1E1...&204
+ball_prev	= &206
+; spare: &236...&258
+ball_next	= &259		; ?&287 can never be &4C so just use it as data
+ball_oldx	= &289
+ball_oldy	= &2B9
+; spare: &2E9...&300
+ball_size	= &F00
+ball_radius	= &F30
+ball_mass	= &F60
+ball_vx		= &F90
+ball_vy		= &FC0
+; spare: &FF0...&1000
+ball_vxfrac	= &1000
+ball_vyfrac = &1030
+ball_ax		= &1060
+ball_ay		= &1090
+ball_axfrac	= &10C0
+; spare: &10F0...&1100
+ball_ayfrac	= &1100
+ball_oldsize = &1130
+ball_x		= &1160
+ball_y 		= &1190
+ball_xfrac	= &11C0
+; spare: &11F0...&1200
+
+codestart = &1200
+
+
+ORG 0
+
+\\ variables which need to be initialized to zero
+.zpclear_start
+.num_balls			SKIP 1
+.num_free_indices	SKIP 1
+.zpclear_end
+
+; generic
+.read				SKIP 2
+.write				SKIP 2
+.screen				SKIP 2
+.addr				SKIP 2
+.temp				SKIP 2
+.savex				SKIP 1
+.savey				SKIP 1
+.count				SKIP 1
+
+; ball rendering
+.count1				SKIP 1
+.count2				SKIP 1
+;.offset1			SKIP 1
+;.offset2			SKIP 1
+.columnstart1		SKIP 1
+.columnstart2		SKIP 1
+.columnend1			SKIP 1
+.columnend2			SKIP 1
+.columnmiddle1		SKIP 1
+.columnmiddle2		SKIP 1
+.ball1data			SKIP 1
+.ball2data			SKIP 1
+.column				SKIP 1
+;.startline			SKIP 1
+
+zpcopy_start = &6B
+
+IF P%>zpcopy_start
+	ERROR "We overflowed the zp!"
+ENDIF
