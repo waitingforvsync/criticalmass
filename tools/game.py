@@ -11,6 +11,7 @@ from colours import SizeColours
 from physics import Ball, Floor, One, Params, Rim, Stats, WellLeft, WellRight, World
 from render import ball_bytes
 from shapes import CriticalSize, make_shapes, physics_radius
+from sparks import Sparks
 from tables import WQ
 from font import draw_text, score_text
 from layout import BestLine, LabelCol, NextX, NextY, ScoreLine
@@ -116,6 +117,7 @@ class Game:
 		self.explosions = 0
 		self.merges = 0
 		self.dying = []					# balls gone, still drawn
+		self.sparks = Sparks()					# a merge's ring of particles (P21)
 		self.held_ball = Ball(self.held, 0, 0)
 		self.next_ball = Ball(self.next, 0, 0)
 		self.held_grow = self.held
@@ -226,6 +228,7 @@ class Game:
 			c = Ball(size, (a.x + b.x) // 2, (a.y + b.y) // 2, grow=2)
 			w.clamp(c)							# (a bigger ball at the midpoint may reach a wall)
 			w.add(c)
+			self.sparks.throw(size, c.x >> 8, c.y >> 8, self.shapes[size].height // 2)
 			chained = self.chain_left > 0
 			self.chain = self.chain + 1 if chained else 0
 			self.score += a.size * (1 + self.chain)
@@ -333,6 +336,8 @@ class Game:
 		move(hb, self.target(shape, self.held, self.dropper_x >> 8, self.held_y(self.held) >> 8) if shape else None)
 		# the next, in the panel
 		move(self.next_ball, self.target(self.next, self.next, NextX, NextY))
+		# the sparks: off, moved and on, over everything in the well
+		self.sparks.frame(screen)
 		# the score and the best, when they've changed
 		if self.shown != (self.score, self.best):
 			draw_text(screen, score_text(self.score), LabelCol, ScoreLine)

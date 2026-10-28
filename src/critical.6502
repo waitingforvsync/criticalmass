@@ -31,12 +31,14 @@ SECTION Mass, org = EntryOrg - (payload_end - payload_image), load = &FFFF0000+p
 		INCLUDE "background.6502"
 		INCLUDE "score.6502"
 		INCLUDE "sound.6502"
+		INCLUDE "sparks.6502"			; (the frame's: sparkthrow.6502 is above &D00, to fit)
 	.lowspace							; the near and merge lists (LowSpace, memory.6502)
 		PADTO NmiOrg
 		RTI								; stray NMIs
 
 		INCLUDE "physics.6502"
 		INCLUDE "game.6502"
+		INCLUDE "sparkthrow.6502"
 		INCLUDE "balls.6502"			; (the workspace's balls, and constants: no code)
 	.code_end
 		PADTO GenBakedOrg

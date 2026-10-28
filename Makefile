@@ -6,7 +6,7 @@
 #   make test      the 6502 against the model, in py65, one at a time, after the real loader: every table,
 #                  the screen it unpacks, the plotter (every byte), the physics (every ball, every step), and
 #                  the whole game in lockstep (every frame: balls, state and screen): a bot's game, a forced
-#                  explosion, repeated explosions with the bot, every size pushed into both walls, and a
+#                  explosion, repeated explosions with the bot, each drop size pushed into both walls, and a
 #                  crowded game (seed 3, where merges in one frame share slots). About eleven minutes
 #   make model     the Python model: a bot game, with stats, in build/model/
 #   make preview   the shapes and colours as PNGs, in build/model/
@@ -34,7 +34,8 @@ DEPS = $(wildcard src/*.6502) $(GENERATED)
 all: $(BUILD)/mass.ssd
 
 $(GENERATED) &: tools/gendata.py tools/shapes.py tools/colours.py tools/tables.py tools/mode2.py tools/game.py \
-		tools/layout.py tools/font.py tools/physics.py tools/screenpng.py assets/screen.png assets/title.png
+		tools/layout.py tools/font.py tools/physics.py tools/screenpng.py tools/sparks.py assets/screen.png \
+		assets/title.png
 	$(PY) tools/gendata.py $(GEN)
 
 $(BUILD)/mass.ssd: $(DEPS)
@@ -72,7 +73,7 @@ test: $(BUILD)/mass.ssd
 	$(PY) tools/lockstep.py --frames 400
 	$(PY) tools/lockstep.py --scene critical --frames 200
 	$(PY) tools/lockstep.py --scene explosions --frames 250 --seed 9
-	$(PY) tools/lockstep.py --scene walls --frames 400 --seed 7
+	$(PY) tools/lockstep.py --scene walls --frames 500 --seed 7
 	$(PY) tools/lockstep.py --frames 1100 --seed 3
 
 model:

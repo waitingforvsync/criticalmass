@@ -63,17 +63,30 @@ def scene_critical(g, m):
 
 
 def walls_keys(frame):
-	"""The walls scene's keys: each held ball pushed at full speed into one wall, then the other, and dropped
-	there, the walls taking turns. The dropper is clamped at every size (the smallest's left limit is less
-	than a frame's move)."""
+	"""The walls scene's keys, a cycle of 50 frames: the held ball pushed at full speed into one wall, then
+	the other, Z and X held together there, and dropped, the walls taking turns. (The smallest ball's left
+	limit is under a fast move, so a move left from it borrows.)"""
 	from game import KeyDrop, KeyLeft, KeyRight
 	t, n = frame % 50, frame // 50
 	first, second = (KeyLeft, KeyRight) if n % 2 == 0 else (KeyRight, KeyLeft)
 	if t < 24:
 		return first
-	if t < 48:
+	if t < 44:
 		return second
+	if t < 48:
+		return KeyLeft | KeyRight
 	return KeyDrop if t == 48 else 0
+
+
+def walls_held(m, g, frame):
+	"""The walls scene's held ball, in both, at each cycle's start: each drop size in turn, grown in, so
+	every size meets both walls whatever the seed deals."""
+	from game import DropSizes
+	if frame % 50 == 0:
+		size = DropSizes[frame // 50 % len(DropSizes)]
+		g.held = g.held_grow = size
+		m.poke(m["Held"], size)
+		m.poke(m["HeldGrow"], size)
 
 
 def inject(m, g, size, x, y, vx=0):
@@ -97,8 +110,8 @@ def main():
 	ap.add_argument("--seed", type=int, default=2)
 	ap.add_argument("--scene", default="",
 					help="critical: a pile and two size-9 balls, no keys; explosions: a pile, two size-9 balls "
-						 "every 60 frames, and the bot (after the review's harness); walls: each held ball pushed "
-						 "into both walls at full speed and dropped there")
+						 "every 60 frames, and the bot (after the review's harness); walls: each drop size in turn "
+						 "pushed into both walls at full speed, Z and X together there, and dropped")
 	args = ap.parse_args()
 	g = Game(seed=args.seed, params=Params())
 	bot = Bot(g, args.seed + 1000)
@@ -137,6 +150,7 @@ def main():
 		if args.scene == "critical":
 			keys = 0
 		elif args.scene == "walls":
+			walls_held(m, g, frame)
 			keys = walls_keys(frame)
 		else:
 			keys = bot.decide()
@@ -170,8 +184,16 @@ def main():
 			sys.exit(1)
 		if g.over:
 			break
+	# the game's end, as main does it before GAME OVER: every spark off, the screen the balls alone
+	live = g.sparks.live()
+	g.sparks.end(screen)
+	m.call("sparks_off")
+	if bytes(mem[ScreenBase:ScreenBase + ScreenSize]) != bytes(screen.mem):
+		print(f"FAIL: with {live} sparks live, sparks_off leaves a different screen from the model's")
+		sys.exit(1)
 	print(f"{len(costs)} frames in lockstep: balls, state and screen matched the model every frame; "
-		  f"score {g.score}, {g.merges} merges, {g.explosions} explosions{', game over' if g.over else ''}")
+		  f"score {g.score}, {g.merges} merges, {g.explosions} explosions{', game over' if g.over else ''}; "
+		  f"then {live} sparks off")
 	print(f"  game_frame: median {pct(costs, 0.5)}, 90% {pct(costs, 0.9)}, 95% {pct(costs, 0.95)}, "
 		  f"max {max(costs)} cycles; over 80,000: {sum(c > 80000 for c in costs)}")
 	print(f"  stack: {m.stack_depth} bytes at most (of 64; the IRQ adds 9), the return address included")

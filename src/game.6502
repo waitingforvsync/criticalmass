@@ -91,7 +91,7 @@ ENDSECTION
 	JMP draw_frame
 }
 
-\\ The frame's drawing: the balls, then the score if it's changed.
+\\ The frame's drawing: the balls, the sparks, then the score if it's changed.
 \\
 \\ Outputs:
 \\     A, X, Y: corrupted
@@ -99,6 +99,7 @@ ENDSECTION
 .draw_frame
 {
 	JSR draw_balls
+	JSR update_sparks
 	JMP draw_score
 }
 
@@ -112,16 +113,19 @@ ENDSECTION
 .fast
 	LDX #LO(DropperSpeed):LDY #HI(DropperSpeed)
 .gotspeed
-	LDA FrameKeys:AND #KeyLeft:BEQ notleft
-	STX t:SEC:LDA DropperX:SBC t:STA DropperX
-	STY t:LDA DropperX+1:SBC t:STA DropperX+1
-	BCS notleft							; past the well's left edge (the smallest ball's limit is under
-	LDA #0:STA DropperX+1				; a move): under every left limit, each over One, so clamped
-.notleft
+	\\ right first (the right limit and a move stay under 65536), so left borrows only when the two
+	\\ together go past the well's left edge: the smallest ball's left limit is under a fast move
+
 	LDA FrameKeys:AND #KeyRight:BEQ notright
 	STX t:CLC:LDA DropperX:ADC t:STA DropperX
 	STY t:LDA DropperX+1:ADC t:STA DropperX+1
 .notright
+	LDA FrameKeys:AND #KeyLeft:BEQ notleft
+	STX t:SEC:LDA DropperX:SBC t:STA DropperX
+	STY t:LDA DropperX+1:SBC t:STA DropperX+1
+	BCS notleft
+	LDA #0:STA DropperX+1				; past it: under every left limit (each over 255), so clamped
+.notleft
 	JSR clamp_dropper
 	LDA FrameKeys:AND #KeyDrop:BEQ letgo
 	LDA Released:BEQ done
@@ -332,6 +336,7 @@ ENDSECTION
 
 	LDA BallSize,X:STA SoundParam
 	LDA #SoundMerge:STA SoundReq
+	JSR throw_sparks
 
 	\\ the chain, and the score
 

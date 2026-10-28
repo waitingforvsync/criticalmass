@@ -360,6 +360,38 @@ Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (
 - `font.py`'s `LabelGlyphs`. It's in `screen.png` only, so the PNG can be retouched freely.
 - The score's 6-digit field is centred too: column 44.
 
+### P20. A merge's ball flashes white for its first frame (2026-10-28, tried and dropped: Rich found it too quick to notice)
+- The original covers its new ball with a flash-coloured disc for 4 frames at 60 Hz. Here the new ball's
+  first frame is drawn in white (the critical ball's colours), still a size smaller as before, then its
+  own colour for the second, then its full size.
+- No physics changes: the merge happens when it did. The pair flashing before merging was the other
+  choice. It costs two whole balls' recolouring in the frame before, and delays each merge a step.
+- The cost: the merge frame is as before (white costs what any colour does). The second frame recolours
+  one ball of the old size, about what drawing it new costs (bench_plot's "new": 3.2K cycles for size 3,
+  9.2K for 7, 16.5K for 10). 8 bytes.
+- The merge into critical mass doesn't flash: it's white already.
+
+### P21. A merge throws a ring of sparks (2026-10-28, to try: Rich asked for a particle effect)
+- After the original's particles, simpler: the original throws 3 × the new radius of them, each with a
+  random drift and life. Here each merge throws 8, one every 45 degrees, from the new ball's edge.
+  - They move at r / 2 units a frame along an axis, 3/4 of that on the diagonals (r / 4 at first; Rich
+    asked for faster and shorter: places in quarters of a unit rather than eighths, the same speeds).
+  - They slow by 1/8 a frame (rounded toward 0). Gravity (an eighth of a unit a frame, each frame) was
+    tried, then taken off for Rich to see them without it: `sparks.py`'s Gravity, 0 or 1, and the 6502
+    follows.
+  - They go after 13 to 20 frames (0.5 to 0.8 s, varying by direction; 25 to 39 at first), or on
+    leaving the well. The ring spreads about 3.5 radii, as the original's does.
+- Each spark is a pixel two lines tall in the new ball's colours, as its stipple has them there.
+- **Drawing:** one pass a frame, after the balls.
+  - Each spark is EORed off with what it was EORed on with, moved, and EORed on with (the byte EOR its
+    colour) AND its pixel's mask, which it keeps.
+  - So it shows its own colour over balls too, and since it's all EOR, the balls' drawing in between
+    doesn't matter. Two sparks on one pixel can show the wrong colour for a frame.
+- **Room:** 16 slots, in zero page (176 bytes, &4C-&FB; the pool is now &00-&4B and &FD-&FF), zeroed by
+  the loader. A ring takes the free slots, so a third ring at once is cut short.
+- **Code:** 184 bytes in `sparks.6502`, before &D00 (that gap now has 1 byte left), and `sparkthrow.6502`
+  after `game.6502`. Plus 24 bytes of direction tables. About 60 bytes of code room are left in all.
+
 ---
 
 ## Open

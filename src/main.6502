@@ -40,7 +40,8 @@ ZA_AUTO1 frame							; the vsync count the last frame started at
 	LDA Over:BNE over					; (the IRQ reads the keys)
 	JSR game_frame
 	LDA Over:BEQ loop
-	JSR draw_game_over					; (the game's just ended)
+	JSR sparks_off						; (the game's just ended)
+	JSR draw_game_over
 	JMP loop
 
 	\\ game over: RETURN let go, then pressed, starts another, on a clear screen

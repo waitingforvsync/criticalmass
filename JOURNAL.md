@@ -488,9 +488,75 @@ looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
     clamped to the right limit. Every other size's limit is at least 2,048, so only size 1 did it.
   - The model's integers don't wrap, so it was right all along. Lockstep missed it because the bot slows
     as it nears its target and never pushes into a wall.
-- **The fix:** `do_keys` clears DropperX's high byte when the move left borrows. That leaves it under every
-  left limit (each over One), and `clamp_dropper` puts it at the limit. 7 bytes: 211 free before the
-  baked tables.
-- **A new lockstep scene,** `--scene walls` (seed 7, whose first ball is size 1): each held ball pushed at
-  full speed into one wall, then the other, and dropped there. It failed at frame 8 before the fix. It's in
-  `make test`, which passes.
+- **The fix:** `do_keys` moves right first, then left, and clears DropperX's high byte when the move left
+  borrows. That leaves it under every left limit (each over 255), and `clamp_dropper` puts it at the limit.
+  - Right comes first because the review found that with left first, Z and X held together at the left
+    limit came out up to 3 units right (the model's net move is 0). Now left borrows only when the net move
+    goes past the left edge. The right limit plus a move stays under 65536.
+  - 7 bytes: 211 free before the baked tables.
+- **A new lockstep scene,** `--scene walls`, a 50-frame cycle: each drop size in turn (set in both, so the
+  seed's draw doesn't matter) pushed at full speed into one wall, then the other, Z and X held together
+  there, then dropped, the walls taking turns.
+  - It failed at frame 8 before the fix, and at frame 294 with left first (2,176 against 1,408).
+  - It's in `make test` at 500 frames.
+
+## 2026-10-28: a merge's ball flashing white (P20), tried and dropped
+
+- **The original's merge, compared:** the physics matches in intent. It merges on contact once both
+  balls are old enough, at the midpoint, at rest, with the full collision radius at once, after that
+  step's pushes. The drawing differs:
+  - The original draws its new ball full size at once, with a flash-coloured disc over it for 4 frames,
+    then the old colour shrinking to the centre.
+  - The two old balls slide in under it, and a ring of 3 × radius particles bursts out.
+- **Tried (Rich asked to see it):** a merge's ball is drawn in white (the critical ball's colours) for its
+  first frame, still a size smaller. Then it takes its own colour, then its full size.
+  - Seen in jsbeeb: white for two paints (40 ms), its own colour at the old size for two, then full size.
+  - 8 bytes in `draw_balls` (203 free before the baked tables).
+- **The cost:** in lockstep, before and after:
+  - seed 2's 400 frames: median 22,149 -> 22,526 cycles;
+  - seed 3's 1,100 frames: median 45,911 -> 46,104, and 71 -> 75 frames over 80,000;
+  - the repeated-explosion scene: 94 -> 99 of 250 over.
+- `make test` passed. Rich found it too quick to notice, so it's taken out again.
+
+## 2026-10-28: a merge throws a ring of sparks (P21, to try)
+
+- **What it does:** each merge's new ball throws 8 sparks from its edge, one every 45 degrees. They slow
+  by 1/8 a frame, drift down, and go after 25 to 39 frames or on leaving the well. Each is a pixel two
+  lines tall in the new ball's colours. `tools/sparks.py` is the model; `src/sparks.6502` (each frame's
+  pass) and `src/sparkthrow.6502` (the throw, and all off at the game's end) match it.
+- **How it's drawn:** one pass a frame, after the balls. Each spark is EORed off with what it was EORed on
+  with, moved, then EORed on with (the byte EOR its colour) AND its pixel's mask, which it keeps. It shows
+  its own colour over balls too, and the screen always comes back to the balls alone, whatever the
+  balls' drawing did in between.
+  - A first version stored sparks over the screen, keeping the bytes, and put them back before the balls
+    were drawn. It was 382 bytes, against about 390 left.
+  - EOR in one pass, the address worked out again rather than kept, and the slots in zero page (zp,X
+    addressing): 338 bytes, then 317 in two files.
+- **Room:**
+  - 16 slots in zero page, 176 bytes at &4C-&FB; the allocator's pool is now &00-&4B and &FD-&FF (MASS
+    uses &00-&1D). The loader zeroes them.
+  - `sparks.6502` is before &D00: that gap has 1 byte left. `sparkthrow.6502` is after `game.6502`: 32
+    bytes left before the baked tables. Plus 24 bytes of direction tables, and 13 and 15 in the small
+    gaps: about 61 bytes of code room left in all.
+- **The cost:** in lockstep, before and after:
+  - seed 2's 400 frames: median 22,149 -> 24,671 cycles;
+  - seed 3's 1,100 frames: median 45,911 -> 47,485, and 71 -> 98 frames over 80,000;
+  - the repeated-explosion scene: 94 -> 115 of 250 over.
+- **Checked:** `make test` passes (lockstep matches the screen every frame with the sparks). In jsbeeb a
+  chain of merges throws two rings, which spread, drift down and fade, over the balls as well.
+- **The review** found no bugs. From it:
+  - lockstep now ends each run with `sparks_off` in both, comparing the screen (the explosion and walls
+    scenes end with 8 and 15 sparks live);
+  - gendata asserts what the 6502 assumes (a spark's speed and eighths add without overflow; gravity is an
+    INC);
+  - `tools/sparks.py` is a prerequisite of the generated files.
+  - Not done: `update_sparks` crosses a page (&B00), about 40 cycles a frame, but there's no room to move
+    it. A live spark costs about 490 cycles a frame, so 16 of them about 7,900.
+- **Without gravity** (Rich asked to see it): `Gravity` is 0 in `sparks.py`, and gendata's
+  `GenSparkGravity` leaves the 6502's INC out (2 bytes). The ring keeps its shape, slows, and drifts on
+  outward until each spark's life is up; a spark slower than 8 eighths a frame isn't slowed any further.
+- **Faster and shorter** (Rich): a spark's place is in quarters of a unit, not eighths, so the same speeds
+  (2r a frame) go twice as far: r / 2 units a frame. Lives halved, to 13 to 20 frames. The ring now
+  spreads about 3.5 radii before it goes, as the original's does (3.6). No more code (the position's
+  shift is two places now, inline, and the speed's / 8 is inline too): the gap before &D00 has 4 bytes.
+  `make test` passes.

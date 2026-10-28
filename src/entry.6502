@@ -139,6 +139,10 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 	STA (sq),Y
 	INY:BNE zero
 	INX:BPL zeros						; (to &7FFF)
+	LDX #SparkBytes						; and the sparks' slots, in zero page
+.sparks
+	STA SparkZP - 1,X
+	DEX:BNE sparks
 
 	\\ the squares: (v + 1)^2 = v^2 + 2v + 1
 

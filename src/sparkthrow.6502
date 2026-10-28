@@ -1,0 +1,76 @@
+\\ sparkthrow.6502 - a merge's ring of sparks thrown (P21), and all of them off at the game's end, as
+\\ sparks.py's throw and end do. Apart from sparks.6502 (the frame's), to fit the gaps the code has left.
+
+SparkDirs = 8
+
+\\ Throw a merge's ring: a spark each way, into the free slots from the first, while there are any. Thrown
+\\ at r / 2 units a frame along an axis, 3/4 of that on the diagonals, from half that many quarters out
+\\ (r, its drawn radius, along an axis).
+\\
+\\ Inputs:
+\\     X: the new ball's slot
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.throw_sparks
+{
+	ZA_AUTO1 xu, yu, even, odd, dir, t	; local: the ball's centre and colours; the direction; a speed / 4
+	ZA_AUTO 5, speed					; local: by a direction's code, 0, a, d, -a, -d (quarters a frame)
+
+	LDA BallXHi,X:STA xu
+	LDA BallYHi,X:STA yu
+	LDY BallSize,X
+	LDA ColourEven,Y:STA even
+	LDA ColourOdd,Y:STA odd
+	LDA HalfHeights,Y:ASL A:STA speed+1	; a: 2r quarters
+	LSR A:LSR A:STA t
+	LDA speed+1:SEC:SBC t:STA speed+2	; d: 3/4 of it
+	LDA #0:STA speed
+	SEC:SBC speed+1:STA speed+3
+	LDA #0:SEC:SBC speed+2:STA speed+4
+
+	LDX #0								; the slot: the first free from here
+	LDY #SparkDirs - 1
+.next
+	STY dir
+.find
+	LDA SparkLife,X:BEQ found
+	INX:CPX #SparkSlots:BCC find
+	RTS									; none left
+.found
+	LDA SparkDirLife,Y:STA SparkLife,X
+	LDA even:STA SparkEven,X
+	LDA odd:STA SparkOdd,X
+	LDA #0:STA SparkKept0,X:STA SparkKept1,X
+	LDA SparkDirX,Y:TAY
+	LDA speed,Y:ZA_INDEXEDBY 0..4:STA SparkVX,X
+	CMP #&80:ROR A						; half the speed: its offset, units
+	CLC:ADC xu:STA SparkX,X
+	LDY dir
+	LDA SparkDirY,Y:TAY
+	LDA speed,Y:ZA_INDEXEDBY 0..4:STA SparkVY,X
+	CMP #&80:ROR A
+	CLC:ADC yu:STA SparkY,X
+	LDY dir
+	DEY:BPL next
+	RTS
+}
+
+\\ The game's end: every spark off, and gone (each live one's last frame).
+\\
+\\ Inputs:
+\\     the sparks' slots
+\\
+\\ Outputs:
+\\     A, X, Y: corrupted
+
+.sparks_off
+{
+	LDX #SparkSlots - 1
+.loop
+	LDA SparkLife,X:BEQ @+
+	LDA #1:STA SparkLife,X:.@
+	DEX:BPL loop
+	JMP update_sparks
+}

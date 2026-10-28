@@ -1,7 +1,8 @@
 \\ memory.6502 - where everything lives once MASS has the machine: the zero page pool, main RAM's
 \\ regions, and its pools of workspace, as virtual sections claimed where they're used (D14, D18).
 
-\\   &0000  zero page: the pool, bar &FC (the MOS's IRQ entry saves A there)
+\\   &0000  zero page: the pool, then the sparks' slots (SparkSpace) up to &FC (the MOS's IRQ entry
+\\          saves A there), then the pool again
 \\   &0100  the stack: 64 bytes, to &13F
 \\   &0140  main RAM's code, fitted around the bytes that can't move: IRQ1V at &204 (the code's own, so
 \\          unpacking sets it), the game's variables after it (MainVars, to &257), &258 = 2 (*FX200: clear
@@ -17,7 +18,9 @@
 \\ which the loader unpacks in place. It loads so that the payload ends just past the screen's end, the
 \\ loader after it: unpacking forward, the reading stays ahead of the writing.
 
-ZA_POOL &00..&FB, &FD..&FF				; &FC: the MOS's IRQ entry saves A there
+SparkBytes = 11 * GenSparkSlots			; the sparks' 11 tables (sparks.6502)
+SparkZP = &FC - SparkBytes
+ZA_POOL &00..SparkZP - 1, &FD..&FF		; &FC: the MOS's IRQ entry saves A there
 
 StackTop = &013F						; 64 bytes of stack, &100 up
 CodeOrg = &0140
@@ -37,4 +40,7 @@ SECTION LowSpace, org = lowspace, guard = NmiOrg, virtual = TRUE
 ENDSECTION
 
 SECTION Workspace, org = ScreenEnd, guard = GenMadeOrg, virtual = TRUE
+ENDSECTION
+
+SECTION SparkSpace, org = SparkZP, guard = &FC, virtual = TRUE
 ENDSECTION

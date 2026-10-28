@@ -115,10 +115,11 @@ def expr(label, text, size, comment, align="in"):
 def made_part(label, values, comment, size=None):
 	"""A table the loader makes (entry.6502's make_tables): not in MASS. values: its bytes, or a
 	function of the tables' addresses giving them (then size)."""
+	comment += " (the loader makes it)" if comment else ""
 	if callable(values):
-		return Part(label, values, size, comment + " (the loader makes it)")
+		return Part(label, values, size, comment)
 	v = [x & 0xFF for x in values]
-	return Part(label, lambda addr: v, len(v), comment + " (the loader makes it)")
+	return Part(label, lambda addr: v, len(v), comment)
 
 
 def made(label, values, comment, align="in", size=None):
@@ -410,6 +411,18 @@ def main():
 	tables.append(table("Effects", [b for ch, per, sl, att, dec in effects
 									for b in (ch, lo(per), hi(per), sl, att, dec, 0, 0)],
 						"the effects: channel, period lo and hi, slide, attenuation, decay, 2 spare"))
+
+	# the sparks (sparks.py, P21), by direction: each speed's code, and the life (their slots are in zero
+	# page: memory.6502)
+	import sparks
+	lines.append(f"GenSparkSlots = {sparks.Slots}")
+	most = max(sh.height // 2 for sh in shapes.values())
+	assert 2 * most + 3 <= 127, "a spark's speed (2r quarters) and its quarters add without overflow (sparks.6502)"
+	assert sparks.Gravity in (0, 1), "sparks.6502 adds gravity with an INC, or not at all"
+	lines.append(f"GenSparkGravity = {sparks.Gravity}")
+	tables.append(table("SparkDirX", sparks.DirX, "the sparks, by direction: the speed across's code"))
+	tables.append(table("SparkDirY", sparks.DirY, "and down's"))
+	tables.append(table("SparkDirLife", sparks.DirLife, "and the life, frames"))
 
 	# --- the screens: the game's as it starts (assets/screen.png), and the loading title's ---
 
