@@ -130,6 +130,13 @@ def draw_limit(screen):
 		screen.put(col, LimitLine, LimitByte)
 
 
+def wipe_row(screen, row):
+	"""The game over's wipe of a row of the well (D25): its even lines cleared, as wipe_row does."""
+	for col in range(WellCol, WallRightCol):
+		for line in range(row * 8, row * 8 + 8, 2):
+			screen.put(col, line, 0)
+
+
 def background(screen):
 	"""The starting screen, from assets/screen.png: what the loader unpacks."""
 	from screenpng import ScreenPng, game_codes, read_pixels, screen_bytes

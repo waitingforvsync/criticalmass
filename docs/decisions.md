@@ -139,6 +139,22 @@ So it's one line, drawn by the game, not in the PNG. The details are P22.
 ### D22. Sparks when balls merge (2026-10-28)
 Rich, on P21 made faster and shorter: "This looks great". He committed it (a5c2b34) and it's released.
 
+### D23. A 32-byte stack (2026-10-28)
+Rich: "i think the stack can be reduced to just 32 bytes". &100-&11F; the code starts at &120. The most
+measured is 11 bytes in lockstep, plus 9 for the IRQ; game over and a new game take at most 6.
+
+### D24. Code on self-modified operands goes in zero page, if there's room (2026-10-28)
+Rich, on the sparks' slots in zero page ("the sparks barely benefit from being zp as they are accessed via
+,X and are no cheaper"): "any routine which self-modifies in a hot loop should go to zp if there is space",
+and "if necessary, move routines with hot loops into their own file so they can be included in a more
+fine-grained way". The details are P23.
+
+### D25. A wipe at game over (2026-10-28)
+Rich: "when the game ends, i would like to clear every alternate line of the jug from the bottom up, one
+character row each frame (an animated effect), before the "game over" text is superimposed". The even
+lines of each row of the well, a row a game frame from the bottom (27 frames, about a second), then
+GAME OVER; RETURN counts once it's done.
+
 ### D15. Releases go to the site's staging folder (2026-10-28)
 Rich: "publish the disk image to ~/dev/waitingforvsync.github.io/beeb/ in the same way that teddyboy does, as
 part of the release workflow".
@@ -414,6 +430,24 @@ Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (
 - `test_background.py` now scribbles over the whole well before `new_screen`.
 - First tried as two lines (32-33) in `screen.png`, read back by gendata: Rich wanted one, and none in
   the PNG.
+
+### P23. What goes in zero page (2026-10-28, for D24)
+- Nothing writes its own operands inside a loop: the patches are once a call. The loops that run on
+  patched operands, and their sizes: the plotter's EOR loops `eor_up`/`eor_left`/`eor_right` (111 bytes,
+  6 patches a `plot_runs` call), `log16` (71, its computed jump patched once a contact), the plotter's
+  pixel paths (368, 16 patches a call) and `plot_vertical` (307, 10).
+- Zero page holds the first two: `eor.6502` and `log16.6502`, split out of `plot.6502` and `physics.6502`
+  and included by `zeropage.6502`, at &30-&E4 (181 bytes). Each patch is a zero page store: a cycle and a
+  byte less. The loops run no faster, but they can't cross a page there. The others don't fit.
+- The image sits in the payload at `.lowspace`, where the near and merge lists go (scratch until the game
+  runs), and the loader copies it down: no RAM of its own.
+- The pool is &00-&2F (30 bytes used) and &FD-&FF; &E5-&FB is spare.
+- The sparks' slots went back to the loader's table gaps (zp,X saved bytes, not cycles: about 30 bytes
+  of code; a DEC costs a cycle more).
+- The plotter now starts at &2FE, the lowest start where none of its hot loops crosses a page;
+  `background.6502` fills the room before it.
+- Code room went from about 45 bytes to about 227 (with D23's 32). The frames cost about 70 cycles more
+  at the median (0.3%), most likely physics branches now crossing pages after `log16` left.
 
 ---
 

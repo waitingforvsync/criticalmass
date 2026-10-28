@@ -518,44 +518,6 @@
 	RTS
 }
 
-\\ The log of a 16-bit value, as tables.py's log16: 32 to an octave, the top 8 significant bits through
-\\ L8. The shift is a jump into a chain of shifts, as many as the high byte has bits (BitLen).
-\\
-\\ Inputs:
-\\     A, X: the value's high and low bytes, 1-65535 (Z set by A)
-\\
-\\ Outputs:
-\\     result: the log, 0-511
-\\     A, X, Y: corrupted
-
-.log16
-{
-	ZA_AUTO2 result						; out: the log
-	ZA_AUTO1 hi							; local: the high byte, shifted
-
-	BNE big
-	LDA L8,X:STA result					; under 256: the table's own
-	LDA #0:STA result+1
-	RTS
-.big
-	STA hi
-	TAY:LDA BitLen,Y:TAY				; the shifts: 1-8
-	LDA ChainEntry,Y:STA jump+1
-	TXA
-.jump
-	JMP chain							; self-modified: chain + 3 (8 - shifts)
-	INPAGE 24							; (padding after the JMP: never run)
-.chain
-FOR k = 1..8
-	LSR hi:ROR A
-NEXT
-	TAX
-	LDA L8,X:CLC:ADC Times32Lo,Y:STA result
-	LDA Times32Hi,Y:ADC #0:STA result+1
-	RTS
-}
-ASSERT HI(log16.chain) == HI(log16.chain + 23), "log16's chain in one page: its entries are low bytes"
-
 \\ Apply each ball's summed push: kp (11/16) of it to its position, kv (12/16) to its velocity, then
 \\ keep it in the well.
 \\

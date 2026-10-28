@@ -423,6 +423,13 @@ def main():
 	tables.append(table("SparkDirX", sparks.DirX, "the sparks, by direction: the speed across's code"))
 	tables.append(table("SparkDirY", sparks.DirY, "and down's"))
 	tables.append(table("SparkDirLife", sparks.DirLife, "and the life, frames"))
+	zeros = [0] * sparks.Slots
+	for parts in ((("SparkX", "the sparks' places, units: across, then down"), ("SparkY", "")),
+				  (("SparkXF", "and quarters"), ("SparkYF", "")),
+				  (("SparkVX", "their speeds, quarters a frame"), ("SparkVY", "")),
+				  (("SparkLife", "frames left (0: free)"),), (("SparkEven", "the colour's bytes"),), (("SparkOdd", ""),),
+				  (("SparkKept0", "what each is EORed on with"),), (("SparkKept1", ""),)):
+		tables.append(Table([made_part(label, zeros, comment + (": zeroed" if comment else "")) for label, comment in parts]))
 
 	# --- the screens: the game's as it starts (assets/screen.png), and the loading title's ---
 

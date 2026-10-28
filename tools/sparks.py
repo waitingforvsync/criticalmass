@@ -10,7 +10,7 @@ colour over anything, and since it's all EOR, the balls' drawing in between does
 always leave the screen as the balls alone. (Two sparks on one pixel can show the wrong colour for a
 frame.) A new spark's kept values are 0, so it isn't EORed off before it's first on.
 
-16 slots (the 6502's are in zero page): a merge's ring takes the free ones from the first, while there
+16 slots (the loader's tables, in the 6502): a merge's ring takes the free ones from the first, while there
 are any.
 
 A spark's place is in quarters of a unit, across from the well's left and down. The 6502 keeps units and

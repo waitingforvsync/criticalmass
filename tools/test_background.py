@@ -8,8 +8,8 @@ GAME OVER) the same.
 import sys
 
 from font import draw_text
-from layout import (FloorLine, OverBox, OverBoxCol, OverCol, OverLine, WallRightCol, WellCol, background,
-					black_box, draw_limit)
+from layout import (FloorLine, FloorRow, OverBox, OverBoxCol, OverCol, OverLine, WallRightCol, WellCol,
+					background, black_box, draw_limit, wipe_row)
 from machine import Machine
 from mode2 import ScreenBase, ScreenSize, Screen
 
@@ -29,22 +29,34 @@ def main():
 	compare(m, want, "the loader's screen")
 	print(f"the loader's screen matches the model byte for byte ({m.load_cycles} cycles to load)")
 
-	# GAME OVER's box, then a new game's screen: back to the start's, the well cleared, and the limit's line
-	# (scribble on all of the well first)
-	m.call("draw_game_over")
+	# the game over's wipe (scribble on the well first), GAME OVER's box, then a new game's screen: back to
+	# the start's, the well cleared, and the limit's line
+	mem = m.mpu.memory
 	over = Screen()
 	background(over)
+
+	def scribble():
+		for col in range(WellCol, WallRightCol):
+			for line in range(FloorLine):
+				mem[ScreenBase + (line >> 3) * 512 + col * 8 + (line & 7)] = 0xFF
+				over.put(col, line, 0xFF)
+
+	scribble()
+	m.poke(m["Wipe"], FloorRow)
+	for row in reversed(range(FloorRow)):
+		m.call("wipe_row")
+		wipe_row(over, row)
+	assert m.peek(m["Wipe"]) == 0
+	compare(m, over, "the game over's wipe")
+	m.call("draw_game_over")
 	black_box(over, OverBox, OverBoxCol)
 	draw_text(over, "GAME OVER", OverCol, OverLine)
 	compare(m, over, "GAME OVER")
-	mem = m.mpu.memory
-	for col in range(WellCol, WallRightCol):			# the whole well, the limit's line too
-		for line in range(FloorLine):
-			mem[ScreenBase + (line >> 3) * 512 + col * 8 + (line & 7)] = 0xFF
+	scribble()
 	m.call("new_screen")
 	draw_limit(want)								# the game's own, on screen.png's
 	compare(m, want, "a new game's screen")
-	print("GAME OVER's box, and a new game's screen, match too")
+	print("the game over's wipe, GAME OVER's box, and a new game's screen match too")
 
 
 if __name__ == "__main__":

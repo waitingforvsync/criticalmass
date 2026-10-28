@@ -1,4 +1,4 @@
-"""Check MASS's in-place unpacking (D18): the payload unpacks forward from &140 to the screen's end, out of
+"""Check MASS's in-place unpacking (D18): the payload unpacks forward from &120 to the screen's end, out of
 MASS, which ends PayloadSlack bytes past that. ZX02's runs are at most 256, so a tail that packs badly
 needs more slack than one that packs well: this runs the loader's own decoder in py65 and, at every write
 into the output, checks that the reading is still ahead of it. Part of `make`.

@@ -1,9 +1,9 @@
 \\ entry.6502 - the loader, MASS's entry point (teddyboy's and exhale's): takes the machine over, unpacks the
-\\ payload (the code, its tables and the screen, contiguous from &140) in place, makes the tables MASS
+\\ payload (the code, its tables and the screen, contiguous from &120) in place, makes the tables MASS
 \\ doesn't hold, and starts the game (D14, D18).
 \\
 \\ MASS loads with its packed payload ending PayloadSlack bytes past the screen's end, and the loader after
-\\ it, in the workspace: unpacking forward from &140 to the screen's end, the reading stays ahead of the
+\\ it, in the workspace: unpacking forward from &120 to the screen's end, the reading stays ahead of the
 \\ writing. !BOOT's title stays up meanwhile (its memory's above all of it); then the display goes off, the
 \\ CRTC's set for the game, and the loader's tables are made over the title.
 
@@ -112,13 +112,17 @@ ASSERT payload_image + ((entry_end - payload_image + 255) AND &FF00) <= TitleAdd
 	EQUB LO(ScreenAddr DIV 8)			; CRTC R13 - screen start address, lo
 
 \\ Make the tables MASS doesn't hold (gendata.py's made_part: made.6502, from GenMadeOrg up to &8000),
-\\ smaller made than packed. tools/test_tables.py checks every table against the model's.
+\\ smaller made than packed, and copy the code that runs in zero page down from its image (D24).
+\\ tools/test_tables.py checks every table against the model's.
 \\
 \\ Inputs:
 \\     RadiusQ, ExpW: unpacked
+\\     lowspace: the zero page code's image (zeropage.6502), to zero_image_end
 \\
 \\ Outputs:
 \\     SqLo, SqHi; Times6Lo/Hi, Times11Lo/Hi; RowHi; PairR, PairR2Lo/Hi; PairCLo/Hi, PairCbLo/Hi
+\\     the rest of the made tables zeroed (the sparks' slots among them)
+\\     ZeroCodeOrg up: the zero page code
 \\     A, X, Y: corrupted
 
 PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less its PairCMatrix entry
@@ -139,10 +143,13 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 	STA (sq),Y
 	INY:BNE zero
 	INX:BPL zeros						; (to &7FFF)
-	LDX #SparkBytes						; and the sparks' slots, in zero page
-.sparks
-	STA SparkZP - 1,X
-	DEX:BNE sparks
+
+	\\ the code that runs in zero page, from its image (where the near and merge lists go)
+
+	LDX #zero_image_end - lowspace
+.zerocode
+	LDA lowspace - 1,X:STA ZeroCodeOrg - 1,X
+	DEX:BNE zerocode
 
 	\\ the squares: (v + 1)^2 = v^2 + 2v + 1
 

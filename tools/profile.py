@@ -14,11 +14,11 @@ from test_physics import game_scenes, put
 
 
 def labels(m):
-	"""Every label in main RAM's code, by address: (address, name)."""
+	"""Every label in the code, main RAM's and zero page's, by address: (address, name)."""
 	out = []
 	end = m.sym["code_end"]
 	for name, addr in m.sym.items():
-		if m.sym["CodeOrg"] <= addr < end and not name[0].isupper():
+		if (m.sym["CodeOrg"] <= addr < end or m.sym["ZeroCodeOrg"] <= addr < 0xFC) and not name[0].isupper():
 			out.append((addr, name))
 	out.sort()
 	return out

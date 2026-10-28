@@ -196,7 +196,7 @@ def main():
 		  f"then {live} sparks off")
 	print(f"  game_frame: median {pct(costs, 0.5)}, 90% {pct(costs, 0.9)}, 95% {pct(costs, 0.95)}, "
 		  f"max {max(costs)} cycles; over 80,000: {sum(c > 80000 for c in costs)}")
-	print(f"  stack: {m.stack_depth} bytes at most (of 64; the IRQ adds 9), the return address included")
+	print(f"  stack: {m.stack_depth} bytes at most (of 32; the IRQ adds 9), the return address included")
 
 
 if __name__ == "__main__":

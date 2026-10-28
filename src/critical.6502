@@ -1,8 +1,8 @@
 \\ critical.6502 - MASS: one payload packed by ZX02 (the code, its tables and the screen as the game starts,
-\\ contiguous from &140 to the screen's end), then the loader, which unpacks it in place and starts the game
+\\ contiguous from &120 to the screen's end), then the loader, which unpacks it in place and starts the game
 \\ (D14, D18).
 \\
-\\ The code runs from &140, under a 64-byte stack, fitted around the bytes that can't move: IRQ1V (the
+\\ The code runs from &120, under a 32-byte stack, fitted around the bytes that can't move: IRQ1V (the
 \\ code's own: unpacking sets it), *FX200's byte and the NMI's RTI. The tables MASS holds come next, up to
 \\ the screen, which is assets/screen.png (tools/screenpng.py): the game draws on it only what changes.
 
@@ -25,14 +25,18 @@ SECTION Mass, org = EntryOrg - (payload_end - payload_image), load = &FFFF0000+p
 		EQUB 2							; *FX200: clear memory on BREAK
 
 		INCLUDE "random.6502"
+		INCLUDE "background.6502"		; (cold: filling the room before the plotter)
 		PADTO PlotOrg					; where none of the plotter's hot loops crosses a page
 		INCLUDE "plot.6502"				; its hot loops' page crossings checked (SAME_PAGE)
 		INCLUDE "irq.6502"
-		INCLUDE "background.6502"
 		INCLUDE "score.6502"
 		INCLUDE "sound.6502"
 		INCLUDE "sparks.6502"			; (the frame's: sparkthrow.6502 is above &D00, to fit)
-	.lowspace							; the near and merge lists (LowSpace, memory.6502)
+	.lowspace							; the near and merge lists (LowSpace, memory.6502), over the image of
+		SECTION ZeroCode, org = ZeroCodeOrg, guard = &FC	; the code that runs in zero page
+			INCLUDE "zeropage.6502"
+		ENDSECTION
+	.zero_image_end
 		PADTO NmiOrg
 		RTI								; stray NMIs
 

@@ -10,24 +10,10 @@
 \\
 \\ A spark's place is units (SparkX: from the well's left) and quarters (SparkXF), down likewise; its
 \\ speed quarters of a unit a frame, signed. Each across table runs on into its down one, so one routine moves
-\\ both, indexed by the slot and the slot + SparkSlots. The slots are in zero page, zeroed by the loader.
+\\ both, indexed by the slot and the slot + SparkSlots. The slots are the loader's tables, in its gaps
+\\ (gendata.py), zeroed with them.
 
 SparkSlots = GenSparkSlots
-
-SECTION SparkSpace
-.SparkX			SKIP SparkSlots			; units, from the well's left
-.SparkY			SKIP SparkSlots			; and down
-.SparkXF		SKIP SparkSlots			; quarters (a new spark keeps its slot's)
-.SparkYF		SKIP SparkSlots
-.SparkVX		SKIP SparkSlots			; quarters of a unit a frame, signed
-.SparkVY		SKIP SparkSlots
-.SparkLife		SKIP SparkSlots			; frames left: 0 is free
-.SparkEven		SKIP SparkSlots			; its colours: its ball's bytes on even lines
-.SparkOdd		SKIP SparkSlots			; and odd
-.SparkKept0		SKIP SparkSlots			; what it was EORed on with, on its even line
-.SparkKept1		SKIP SparkSlots			; and the odd under it
-ENDSECTION
-ASSERT SparkKept1 + SparkSlots == SparkZP + SparkBytes
 
 \\ Each frame, after the balls: every live spark off, moved (a step, 7/8 of its speed kept, rounded toward
 \\ 0, then gravity's quarter down if it's on), and on, the last slot first; gone when its time's up, or past a wall or

@@ -74,10 +74,12 @@ explanations at that level.
 ## Layout
 - `src/`: Baron sources.
   - `critical.6502` is the top level: MASS is one ZX02 payload (the code, its tables and the screen,
-    contiguous from &140), then the loader (`entry.6502`), which unpacks it in place.
+    contiguous from &120), then the loader (`entry.6502`), which unpacks it in place.
   - The memory map is in `memory.6502` (D14, D18):
-    - stack &100-&13F;
-    - code from &140, around the bytes that can't move;
+    - zero page: the pool &00-&2F, then code on self-modified operands (D24: `zeropage.6502`, copied
+      there by the loader);
+    - stack &100-&11F (D23);
+    - code from &120, around the bytes that can't move;
     - MASS's tables up to the screen at &33E8 (the well's rows a page each, from &3400);
     - then the workspace, and the loader's tables up to &8000.
   - The 6502 draws by columns from the well's first, and x counts from the well's left.

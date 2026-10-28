@@ -1,10 +1,10 @@
 \\ memory.6502 - where everything lives once MASS has the machine: the zero page pool, main RAM's
 \\ regions, and its pools of workspace, as virtual sections claimed where they're used (D14, D18).
 
-\\   &0000  zero page: the pool, then the sparks' slots (SparkSpace) up to &FC (the MOS's IRQ entry
-\\          saves A there), then the pool again
-\\   &0100  the stack: 64 bytes, to &13F
-\\   &0140  main RAM's code, fitted around the bytes that can't move: IRQ1V at &204 (the code's own, so
+\\   &0000  zero page: the pool, then the code that runs there (ZeroCodeOrg, D24) up to &FC (the MOS's
+\\          IRQ entry saves A there), then the pool again
+\\   &0100  the stack: 32 bytes, to &11F (D23)
+\\   &0120  main RAM's code, fitted around the bytes that can't move: IRQ1V at &204 (the code's own, so
 \\          unpacking sets it), the game's variables after it (MainVars, to &257), &258 = 2 (*FX200: clear
 \\          memory on BREAK), and an RTI at &D00 for stray NMIs (claimed from the filing system). The near
 \\          and merge lists take the room the code leaves before &D00 (LowSpace)
@@ -14,20 +14,19 @@
 \\   GenMadeOrg  the tables the loader makes (made.6502), up to &8000. !BOOT's title is there, up while
 \\          MASS loads and unpacks: everything MASS holds goes under it
 \\
-\\ MASS is one payload, packed by ZX02: the code, its tables and the screen, &140 up to the screen's end,
+\\ MASS is one payload, packed by ZX02: the code, its tables and the screen, &120 up to the screen's end,
 \\ which the loader unpacks in place. It loads so that the payload ends just past the screen's end, the
 \\ loader after it: unpacking forward, the reading stays ahead of the writing.
 
-SparkBytes = 11 * GenSparkSlots			; the sparks' 11 tables (sparks.6502)
-SparkZP = &FC - SparkBytes
-ZA_POOL &00..SparkZP - 1, &FD..&FF		; &FC: the MOS's IRQ entry saves A there
+ZeroCodeOrg = &30						; the code in zero page (zeropage.6502, D24), up to &FB
+ZA_POOL &00..ZeroCodeOrg - 1, &FD..&FF	; &FC: the MOS's IRQ entry saves A there
 
-StackTop = &013F						; 64 bytes of stack, &100 up
-CodeOrg = &0140
+StackTop = &011F						; 32 bytes of stack, &100 up (D23: 20 used at most, the IRQ's 9 included)
+CodeOrg = &0120
 Irq1V = &0204
 MainVarsOrg = &0206						; after IRQ1V, to *FX200's byte
 BreakEffect = &0258						; *FX200: 2 clears memory on BREAK
-PlotOrg = &0290							; the plotter: where none of its hot loops crosses a page
+PlotOrg = &02FE							; the plotter: where none of its hot loops crosses a page
 NmiOrg = &0D00							; an RTI, for stray NMIs
 TitleAddr = &8000 - GenTitleChars * GenTitleRows * 8	; !BOOT's title (boot.6502)
 PayloadSlack = 16						; the packed payload ends this far past the screen's end
@@ -40,7 +39,4 @@ SECTION LowSpace, org = lowspace, guard = NmiOrg, virtual = TRUE
 ENDSECTION
 
 SECTION Workspace, org = ScreenEnd, guard = GenMadeOrg, virtual = TRUE
-ENDSECTION
-
-SECTION SparkSpace, org = SparkZP, guard = &FC, virtual = TRUE
 ENDSECTION

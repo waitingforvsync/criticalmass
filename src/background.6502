@@ -1,6 +1,6 @@
 \\ background.6502 - the screen's parts the game changes outside the plotter: the well cleared for a new
-\\ game (GAME OVER's box with it), and black boxes (layout.py's). The rest of the screen is only ever the
-\\ loader's (the packed screen it unpacks): plain stores, never EORed.
+\\ game (GAME OVER's box with it), black boxes (layout.py's), and the game over's wipe. The rest of the
+\\ screen is only ever the loader's (the packed screen it unpacks): plain stores, never EORed.
 
 NextBallRow = GenNextBoxRow + 2			; the next ball's part of its box: under NEXT, to the box's end
 NextBallRows = GenNextBoxRows - 2
@@ -64,5 +64,30 @@ NextBallRows = GenNextBoxRows - 2
 	DEY:CPY #&FF:BNE byte
 	INC row
 	DEC rows:BNE rowloop
+	RTS
+}
+
+\\ The game over's wipe (D25): a row of the well, every other line cleared (its even lines: every other
+\\ byte of the row's page), a row a frame from the bottom, before GAME OVER.
+\\
+\\ Inputs:
+\\     Wipe: the rows of the well still to wipe (FloorRow at the game's end)
+\\
+\\ Outputs:
+\\     Wipe: one fewer, the row it wiped
+\\     A: Wipe, Z set once it's 0
+\\     Y: corrupted
+
+.wipe_row
+{
+	ZA_AUTO2 ptr						; local: the row's first byte in the well
+	DEC Wipe
+	LDA Wipe:ASL A:ADC #HI(WellAddr):STA ptr+1	; (C clear: Wipe < 128)
+	LDY #0:STY ptr
+	TYA
+.loop
+	STA (ptr),Y
+	INY:INY:BNE loop
+	LDA Wipe
 	RTS
 }

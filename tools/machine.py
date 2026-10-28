@@ -17,7 +17,7 @@ from py65.devices.mpu6502 import MPU
 
 Root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 Sentinel = 0xFFF0						# the return address a call stops at
-StackTop = 0x13F						# the game's stack: &100-&13F (code from &140)
+StackTop = 0x11F						# the game's stack: &100-&11F (code from &120)
 StackFill = 0xA5						# under the stack before a call: the lowest byte changed is its deepest
 
 

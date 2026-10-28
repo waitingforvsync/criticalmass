@@ -574,3 +574,21 @@ looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
 - Room: 1 byte before &D00, 17 after the code above it, 10 in `main`'s gap before IRQ1V and 15 before the
   plotter. `make test` passes.
 - Then dotted (Rich asked to see it): `LimitByte` &20, each byte's left pixel blue. No code change.
+
+## 2026-10-28: a 32-byte stack (D23), code in zero page (D24, P23), and a wipe at game over (D25)
+
+- **The stack** is &100-&11F; the code starts at &120 (32 more bytes below IRQ1V). The most measured is
+  20 bytes with the IRQ.
+- **Zero page:** the sparks' slots were there to save code bytes (zp,X is 2 bytes, but no faster than
+  abs,X). Rich: code on self-modified operands goes there instead. `eor_up`/`eor_left`/`eor_right` and
+  `log16` moved (181 bytes at &30-&E4), split into `eor.6502` and `log16.6502`. Their image is in the
+  payload where the near and merge lists go, copied down by the loader. The sparks' slots are back in
+  the loader's table gaps. The plotter now starts at &2FE (no hot loop crossing a page; found by search),
+  with `background.6502` in the room before it.
+- **Room:** 42 bytes before IRQ1V (24 after the wipe), 46 before the plotter (20), 63 under &D00, 76
+  above it: about 227 before the wipe.
+- **The cost:** about 70 cycles more a frame at the median, the same frames over budget.
+- **The wipe at game over:** `wipe_row` (26 bytes) clears a row's even lines (every other byte of its
+  page), a row a frame from the bottom; `main` runs it from the game's end, then GAME OVER. Seen in
+  jsbeeb: the balls go striped from the bottom up, then GAME OVER; RETURN starts a clean game.
+  `test_background.py` checks the wipe on a scribbled well, GAME OVER over it, then `new_screen`.

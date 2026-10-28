@@ -1,0 +1,88 @@
+\\ eor.6502 - the plotter's EOR loops (plot.6502's), in zero page (D24): their data is patched once a call
+\\ (plot_runs), so the patches are zero page stores, and a loop can't cross a page there.
+
+\\ EOR lines up the screen, the even and odd lines' data alternating.
+\\
+\\ Inputs:
+\\     X: how many lines, 1-255
+\\     Y, eorptr: the bottom line's place in its row (0-7), and the row's byte in the column
+\\     odddata+1, evendata+1: the data for odd and even lines (self-modified)
+\\
+\\ Outputs:
+\\     Y, eorptr: the line above the top one
+\\     A, X: corrupted
+
+.eor_up
+{
+	TYA:LSR A:BCC evenline
+.oddline
+.odddata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the odd lines' data
+	DEY									; (an odd line is never a row's 0)
+	DEX:BEQ done
+.evenline
+.evendata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the even lines' data
+	DEY:BMI rowup
+	DEX:BNE oddline
+	SAME_PAGE oddline
+.done
+	RTS
+.rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1			; a row up
+	DEX:BNE oddline
+	SAME_PAGE oddline
+	RTS
+}
+
+\\ eor_up twice more, for the pixel path: one for left pixels and one for right, each with its data
+\\ patched once a call.
+
+.eor_left
+{
+	TYA:LSR A:BCC evenline
+.oddline
+.odddata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the odd lines' data
+	DEY									; (an odd line is never a row's 0)
+	DEX:BEQ done
+.evenline
+.evendata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the even lines' data
+	DEY:BMI rowup
+	DEX:BNE oddline
+	SAME_PAGE oddline
+.done
+	RTS
+.rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1			; a row up
+	DEX:BNE oddline
+	SAME_PAGE oddline
+	RTS
+}
+
+.eor_right
+{
+	TYA:LSR A:BCC evenline
+.oddline
+.odddata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the odd lines' data
+	DEY									; (an odd line is never a row's 0)
+	DEX:BEQ done
+.evenline
+.evendata
+	LDA #0:EOR (eorptr),Y:STA (eorptr),Y	; self-modified: the even lines' data
+	DEY:BMI rowup
+	DEX:BNE oddline
+	SAME_PAGE oddline
+.done
+	RTS
+.rowup
+	LDY #7
+	DEC eorptr+1:DEC eorptr+1			; a row up
+	DEX:BNE oddline
+	SAME_PAGE oddline
+	RTS
+}

@@ -1,7 +1,11 @@
 \\ main.6502 - the main loop: a frame every other vsync (D6, 25 fps): the keys, then the game's frame; at
-\\ game over, RETURN (let go, then pressed) starts another.
+\\ game over, the wipe (D25, a row a frame), GAME OVER, then RETURN (let go, then pressed) starts another.
 
 ZA_AUTO1 frame							; the vsync count the last frame started at
+
+SECTION MainVars
+.Wipe			SKIP 1					; game over: the well's rows still to wipe (background.6502)
+ENDSECTION
 
 \\ The main loop.
 \\
@@ -42,12 +46,17 @@ ZA_AUTO1 frame							; the vsync count the last frame started at
 	JSR game_frame
 	LDA Over:BEQ loop
 	JSR sparks_off						; (the game's just ended)
-	JSR draw_game_over
+	LDA #FloorRow:STA Wipe				; the wipe, a row a frame, then GAME OVER
 	JMP loop
 
-	\\ game over: RETURN let go, then pressed, starts another, on a clear screen
+	\\ game over: the wipe, then RETURN let go, then pressed, starts another, on a clear screen
 
 .over
+	LDA Wipe:BEQ keys
+	JSR wipe_row:BNE loop
+	JSR draw_game_over
+	JMP loop
+.keys
 	LDA Keys:AND #KeyDrop:BNE waitgo
 	LDA #1:STA Released
 	JMP loop
