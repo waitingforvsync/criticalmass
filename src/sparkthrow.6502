@@ -15,7 +15,7 @@ SparkDirs = 8
 
 .throw_sparks
 {
-	ZA_AUTO1 xu, yu, even, odd, dir, t	; local: the ball's centre and colours; the direction; a speed / 4
+	ZA_AUTO1 xu, yu, even, odd, dir		; local: the ball's centre and colours; the direction
 	ZA_AUTO 5, speed					; local: by a direction's code, 0, a, d, -a, -d (quarters a frame)
 
 	LDA BallXHi,X:STA xu
@@ -24,10 +24,10 @@ SparkDirs = 8
 	LDA ColourEven,Y:STA even
 	LDA ColourOdd,Y:STA odd
 	LDA HalfHeights,Y:ASL A:STA speed+1	; a: 2r quarters
-	LSR A:LSR A:STA t
-	LDA speed+1:SEC:SBC t:STA speed+2	; d: 3/4 of it
+	LSR A:LSR A:EOR #&FF:SEC:ADC speed+1	; d: 3/4 of it (a + NOT a / 4 + 1)
+	STA speed+2
 	LDA #0:STA speed
-	SEC:SBC speed+1:STA speed+3
+	SBC speed+1:STA speed+3				; (C set: no borrow above)
 	LDA #0:SEC:SBC speed+2:STA speed+4
 
 	LDX #0								; the slot: the first free from here

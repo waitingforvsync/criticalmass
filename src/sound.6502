@@ -26,7 +26,7 @@ ENDSECTION
 \\     A: the byte
 \\
 \\ Outputs:
-\\     A: corrupted
+\\     A: 8, Z clear (sound_frame's BNEs rely on it)
 
 .psg_write
 {
@@ -79,33 +79,26 @@ ENDSECTION
 	LDA ChanPeriodLo,X:LSR A:LSR A:LSR A:LSR A
 	ORA t:AND #63
 	JSR psg_write
-	JMP volume
+	BNE volume							; (always: psg_write leaves 8)
 .noise
 	LDA #&E4:JSR psg_write				; noise: white, the slowest fixed rate
 .volume
 	LDA ChanAtt,X:ORA ChanBits,X:ORA #&90
 	JSR psg_write
-	LDA ChanSlide,X:BMI slidedown
+	LDY #0:LDA ChanSlide,X:BPL @+:DEY:.@	; the slide, and its sign
 	CLC:ADC ChanPeriodLo,X:STA ChanPeriodLo,X
-	BCC slid:INC ChanPeriodHi,X
-	JMP slid
-.slidedown
-	CLC:ADC ChanPeriodLo,X:STA ChanPeriodLo,X
-	BCS slid:DEC ChanPeriodHi,X
-.slid
+	TYA:ADC ChanPeriodHi,X:STA ChanPeriodHi,X
 	DEC ChanTick,X:BNE next
 	LDA ChanDecay,X:STA ChanTick,X
 	INC ChanAtt,X
-	JMP next
+	BNE next							; (always: 16 at most)
 .silent
 	BNE next							; (past 16: silenced already)
 	LDA ChanBits,X:ORA #&9F				; attenuation 15: off
 	JSR psg_write
 	INC ChanAtt,X
 .next
-	DEX:BMI done
-	JMP channel
-.done
+	DEX:BPL channel
 	LDA #&03:STA &FE40					; the keyboard back on PA7
 	LDA #&7F:STA &FE43					; and bit 7 an input again
 	RTS

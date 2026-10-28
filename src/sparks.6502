@@ -27,31 +27,32 @@ SparkSlots = GenSparkSlots
 
 .update_sparks
 {
-	ZA_AUTO2 ptr						; local: its even line's byte
-	ZA_AUTO1 mask, t					; local: its pixel; a speed / 8
+	ZA_AUTO2 ptr						; local: its byte column's first byte in the row (Y its even line)
+	ZA_AUTO1 mask						; local: its pixel
+	ASSERT SparkSlots == 16, "a slot EOR SparkSlots is its down index, and back"
 	LDX #SparkSlots - 1
 .slot
 	LDA SparkLife,X:BEQ next
 	LDA SparkKept0,X:ORA SparkKept1,X:BEQ off
 	JSR at								; off
-	LDY #0:LDA (ptr),Y:EOR SparkKept0,X:STA (ptr),Y
+	LDA (ptr),Y:EOR SparkKept0,X:STA (ptr),Y
 	INY:LDA (ptr),Y:EOR SparkKept1,X:STA (ptr),Y
 .off
 	DEC SparkLife,X:BEQ next
 	JSR step							; across
-	TXA:CLC:ADC #SparkSlots:TAX
+	TXA:EOR #SparkSlots:TAX
 	JSR step							; down
 IF GenSparkGravity
 	INC SparkVX,X						; (SparkVY): gravity
 ENDIF
-	TXA:SEC:SBC #SparkSlots:TAX
+	TXA:EOR #SparkSlots:TAX
 	LDA SparkX,X:BMI gone				; past a wall (past the left wraps to 128 or more)
 	LDA SparkY,X:CMP #FloorLine:BCS gone	; or the floor (past the top wraps too)
 	JSR at								; on
 	LDA SparkX,X:LSR A:LSR A			; its pixel: the left, or the right
 	LDA #&AA:BCC @+:LSR A:.@
 	STA mask
-	LDY #0:LDA (ptr),Y:EOR SparkEven,X:AND mask:STA SparkKept0,X:EOR (ptr),Y:STA (ptr),Y
+	LDA (ptr),Y:EOR SparkEven,X:AND mask:STA SparkKept0,X:EOR (ptr),Y:STA (ptr),Y
 	INY:LDA (ptr),Y:EOR SparkOdd,X:AND mask:STA SparkKept1,X:EOR (ptr),Y:STA (ptr),Y
 .next
 	DEX:BPL slot
@@ -60,18 +61,17 @@ ENDIF
 	LDA #0:STA SparkLife,X
 	BEQ next
 
-	\\ Its even line's byte (the odd's is the next: one character row).
-	\\ Inputs: X, a slot. Outputs: ptr; A, Y corrupted
+	\\ Its byte: its column's in its row, and its even line in that (the odd line's the next).
+	\\ Inputs: X, a slot. Outputs: ptr, the column's first byte in the row; Y, the even line; A corrupted
 
 .at
 	LDY SparkY,X:LDA RowHi,Y:STA ptr+1
-	TYA:AND #6:STA ptr
-	LDA SparkX,X:AND #&FC:ASL A			; its byte column * 8
-	ORA ptr:STA ptr
+	LDA SparkX,X:AND #&FC:ASL A:STA ptr	; its byte column * 8
+	TYA:AND #6:TAY
 	RTS
 
 	\\ A step, and 7/8 of the speed kept.
-	\\ Inputs: X, a slot (across) or a slot + SparkSlots (down). Outputs: A, Y, t corrupted
+	\\ Inputs: X, a slot (across) or a slot + SparkSlots (down). Outputs: A, Y corrupted
 
 .step
 	LDA SparkVX,X:CLC:ADC SparkXF,X:TAY	; the speed and the quarters (2r + 3 at most: gendata.py asserts it's under 128)
@@ -80,6 +80,6 @@ ENDIF
 	CLC:ADC SparkX,X:STA SparkX,X
 	LDA SparkVX,X:BPL @+:CLC:ADC #7:.@	; / 8, rounded toward 0
 	CMP #&80:ROR A:CMP #&80:ROR A:CMP #&80:ROR A
-	STA t:LDA SparkVX,X:SEC:SBC t:STA SparkVX,X
+	EOR #&FF:SEC:ADC SparkVX,X:STA SparkVX,X	; (less it: + NOT it + 1)
 	RTS
 }

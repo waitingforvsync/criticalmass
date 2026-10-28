@@ -6,10 +6,9 @@ LabelCol = GenLabelCol - WellCol			; (columns from the well's first, D18)
 SpaceGlyph = GenSpaceGlyph
 
 SECTION MainVars
-.Best			SKIP 3					; BCD, low byte first: the best score since the machine started
+.Shown			SKIP 12					; each digit's cell, the score's 6 then the best's: its glyph EOR
+										; SpaceGlyph (0, blank, as the loader's screen has them)
 ENDSECTION
-
-ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 
 \\ Draw a glyph: its cell, two byte columns by ten lines, each of its five rows twice.
 \\
@@ -17,62 +16,33 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 \\     A: the glyph (font.py's Order)
 \\     X: the cell's left byte column, from the well's first (D18)
 \\     Y: its top line
-\\     textcolour: its colour
 \\
 \\ Outputs:
 \\     A, X, Y: corrupted
 
 .draw_glyph
 {
-	ZA_AUTO2 ptr						; local: the line's row's byte in the column
-	ZA_AUTO1 g, line, n, collo, colhi	; local: the glyph's next row in the tables; the line; lines left;
-										; the column's offset in a row
-	STA g:ASL A:ASL A:CLC:ADC g:STA g	; * 5
-	STY line
-	TXA:ASL A:ASL A:ASL A:STA collo
-	LDA #0:ROL A:STA colhi
+	ZA_AUTO2 left, right				; local: the line's row's byte in the left byte column, and the right
+	ZA_AUTO1 g, n						; local: the glyph; lines left
+
+	STA g
+	TXA:ASL A:ASL A:ASL A:STA left		; the column * 8 (C: its top bit)
+	LDA RowHi,Y:ADC #0:STA left+1
+	LDA left:ADC #8:STA right			; (C clear)
+	LDA left+1:ADC #0:STA right+1
+	TYA:AND #7:TAY						; the line in its row
+	LDA g:ASL A:ASL A:ADC g:TAX			; its rows in the font: * 5 (C clear: a glyph's under 64)
 	LDA #10:STA n
 .loop
-	LDY line
-	LDA RowHi,Y:CLC:ADC colhi:STA ptr+1
-	LDA collo:STA ptr
-	TYA:AND #7:TAY
-	LDX g
-	LDA GlyphL,X:AND textcolour:STA (ptr),Y
-	TYA:CLC:ADC #8:TAY					; the right byte column: 8 on
-	LDA GlyphR,X:AND textcolour:STA (ptr),Y
-	INC line
-	LDA n:LSR A:BCC @+:INC g:.@			; a row a line pair: the next after an odd count left
-	DEC n:BNE loop
-	RTS
-}
-
-\\ Draw a label: glyph numbers, 255 ending them.
-\\
-\\ Inputs:
-\\     A, X: the label's address, low and high bytes
-\\     Y: its top line
-\\     draw_label.col: its first cell's byte column
-\\
-\\ Outputs:
-\\     A, X, Y: corrupted
-
-.draw_label
-{
-	ZA_AUTO2 text						; local: the label
-	ZA_AUTO1 i, col, line				; local: the glyph; its cell's column (an input); the line
-
-	STA text:STX text+1
-	STY line
-	LDA #0:STA i
-.loop
-	LDY i
-	LDA (text),Y:CMP #255:BEQ done
-	LDX col:LDY line
-	JSR draw_glyph
-	INC i
-	INC col:INC col
-	JMP loop
+	LDA GlyphL,X:STA (left),Y			; (the font's in its colour)
+	LDA GlyphR,X:STA (right),Y
+	INY:CPY #8:BNE @+
+	LDY #0								; the next row: 512 bytes on
+	INC left+1:INC left+1:INC right+1:INC right+1
+.@
+	DEC n:BEQ done
+	LDA n:LSR A:BCS loop				; each row twice: the next after an even count left
+	INX:BNE loop						; (always)
 .done
 	RTS
 }
@@ -87,72 +57,86 @@ ZA_AUTO1 textcolour						; draw_glyph's colour: a byte of it, both pixels
 
 .draw_game_over
 {
+	ZA_AUTO1 i, col						; local: the glyph; its cell's column
+
 	LDA #GenOverBoxRow:LDX #GenOverBoxRows:LDY #GenOverBoxCol - WellCol:JSR fill_box
-	LDA #GenTextColour:STA textcolour
-	LDA #GenOverCol - WellCol:STA draw_label.col
-	LDA #LO(OverText):LDX #HI(OverText):LDY #GenOverLine:JMP draw_label
-}
-
-\\ Draw the score and the best, if the score's changed since they were drawn.
-\\
-\\ Inputs:
-\\     ScoreShown: 0 if they're to be drawn
-\\
-\\ Outputs:
-\\     ScoreShown set; A, X, Y corrupted
-
-.draw_score
-{
-	LDA ScoreShown:BNE done
-	LDA #GenTextColour:STA textcolour
-	LDA #LO(Score):LDX #HI(Score):LDY #GenScoreLine:JSR draw_number
-	LDA #LO(Best):LDX #HI(Best):LDY #GenBestLine:JSR draw_number
-	LDA #1:STA ScoreShown
+	LDA #GenOverCol - WellCol:STA col
+	LDA #0:STA i
+.loop
+	LDX i:LDA OverText,X:BMI done		; (255 ends it)
+	LDX col:LDY #GenOverLine
+	JSR draw_glyph
+	INC i
+	INC col:INC col
+	BNE loop							; (always)
 .done
 	RTS
 }
 
-\\ Draw a 6-digit BCD number from LabelCol across, its leading noughts as spaces, but for its last digit.
+\\ Draw the score and the best, if the score's changed since they were drawn: the digits whose glyphs have
+\\ changed (a merge's points change the last one or two), each number's leading noughts as spaces, but for
+\\ its last digit.
 \\
 \\ Inputs:
-\\     A, X: its address (3 bytes, low first), low and high bytes
-\\     Y: its top line
+\\     ScoreShown: 0 if they're to be drawn
+\\     Shown: the cells' glyphs
 \\
 \\ Outputs:
-\\     A, X, Y: corrupted
+\\     ScoreShown set; Shown; A, X, Y corrupted
 
-.draw_number
+.draw_score
 {
-	ZA_AUTO2 num						; local: the number
-	ZA_AUTO1 col, line, byte, digit, started	; local: the cell's column; the line; its byte; the digit (0-5);
-										; non-zero once a digit's been shown
-	STA num:STX num+1
-	STY line
+	ZA_AUTO1 at, col, line, started, cell	; local: the number's byte (Best + 0-5: the best's, then the
+											; score's, low first); the cell's column and line; the
+											; number's digits so far ORed (bit 7: its last); the cell
+
+	LDA ScoreShown:BNE done
+	INC ScoreShown
+	LDX #0								; the first cell
+	LDY #5								; the score's top byte
+	LDA #GenScoreLine:JSR number
+	LDA #GenBestLine					; (Y = 2: the best's top byte)
+
+	\\ A number: A its line, Y its top byte, X its first cell
+
+.number
+	STA line
 	LDA #LabelCol:STA col
-	LDA #0:STA started:STA digit
-	LDA #2:STA byte
-.loop
-	LDY byte
-	LDA (num),Y
-	LDX digit:INX:STX digit				; the high nybble first
-	CPX #1:BEQ high:CPX #3:BEQ high:CPX #5:BEQ high
-	DEC byte							; the low nybble: the byte's done after it
-	AND #15								; (Z: the digit's, so after the DEC)
-	JMP gotdigit
-.high
-	LSR A:LSR A:LSR A:LSR A
-.gotdigit
-	BNE show
-	LDX started:BNE show
-	LDX digit:CPX #6:BEQ show			; the last digit always
-	LDA #SpaceGlyph
-	JMP draw
+	LDA #0:STA started
+.byte
+	STY at
+	LDA Best,Y:LSR A:LSR A:LSR A:LSR A
+	JSR digit
+	LDY at
+	CPY #3:BEQ last
+	TYA:BNE notlast
+.last
+	SEC:ROR started						; its last digit: always shown
+.notlast
+	LDA Best,Y:AND #15
+	JSR digit
+	LDY at:DEY
+	BIT started:BPL byte
+.done
+	RTS
+
+	\\ A digit: A the digit, X its cell
+
+.digit
+	TAY
+	ORA started:STA started:BNE show	; a leading nought: a space
+	LDY #SpaceGlyph
 .show
-	LDX #1:STX started
-.draw
+	TYA:EOR #SpaceGlyph
+	CMP Shown,X:BEQ same				; drawn already
+	STA Shown,X
+	EOR #SpaceGlyph
+	STX cell
 	LDX col:LDY line
 	JSR draw_glyph
+	LDX cell
+.same
+	INX
 	INC col:INC col
-	LDA digit:CMP #6:BNE loop
 	RTS
 }

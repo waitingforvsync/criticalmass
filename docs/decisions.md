@@ -155,6 +155,10 @@ character row each frame (an animated effect), before the "game over" text is su
 lines of each row of the well, a row a game frame from the bottom (27 frames, about a second), then
 GAME OVER; RETURN counts once it's done.
 
+### D26. log16 inlined into pair (2026-10-29)
+Rich, on P24's log16 against D24's letter: "yes, inline log16". pair takes its self-modified jump; zero page
+holds the plotter's EOR loops alone.
+
 ### D15. Releases go to the site's staging folder (2026-10-28)
 Rich: "publish the disk image to ~/dev/waitingforvsync.github.io/beeb/ in the same way that teddyboy does, as
 part of the release workflow".
@@ -437,7 +441,8 @@ Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (
   6 patches a `plot_runs` call), `log16` (71, its computed jump patched once a contact), the plotter's
   pixel paths (368, 16 patches a call) and `plot_vertical` (307, 10).
 - Zero page holds the first two: `eor.6502` and `log16.6502`, split out of `plot.6502` and `physics.6502`
-  and included by `zeropage.6502`, at &30-&E4 (181 bytes). Each patch is a zero page store: a cycle and a
+  and included by `zeropage.6502`, at &30-&E4 (181 bytes). (P24 has since inlined `log16` into `pair`:
+  zero page holds `eor.6502` alone.) Each patch is a zero page store: a cycle and a
   byte less. The loops run no faster, but they can't cross a page there. The others don't fit.
 - The image sits in the payload at `.lowspace`, where the near and merge lists go (scratch until the game
   runs), and the loader copies it down: no RAM of its own.
@@ -448,6 +453,45 @@ Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (
   `background.6502` fills the room before it.
 - Code room went from about 45 bytes to about 227 (with D23's 32). The frames cost about 70 cycles more
   at the median (0.3%), most likely physics branches now crossing pages after `log16` left.
+
+### P24. The optimisation round (2026-10-29, Rich asked for it: "both size and speed")
+- Profiled first (seed 3's bot game, every cycle of game_frame by label; `tools/profile.py` now takes
+  MASS's labels only, as !BOOT's lie over MASS's code): in the frames over 60,000 cycles, the physics was
+  68% (pair 32%, apply 13.5%, sweep 8.4%, integrate 7.1%, log16 3.7%) and the drawing about 30%.
+- Five agents, an area each, each checking its code against the old in py65; the lead integrated them,
+  with `make test` after each. Every result is byte-identical to before: the model is unchanged.
+- **The broad phase:** sort from the end with a sentinel past the end of Order; the sweep's inner loop
+  rewritten (no y test: pair rejects those first; the x test by dx's sign; X the Order index); resweep
+  counts down (the second pass's pushes sum the same in any order); the near lists each on one page with
+  the byte before them (resweep reads NearA-1,X and NearB-1,X).
+- **The per-ball physics:** apply with a fits-a-byte test and the push's sign deciding which wall to test;
+  integrate with the size held in Y, and the floor or the top tested by the move's sign (and, after, the x
+  walls too); age folded into integrate (so
+  pair's merge test is against MergeAge + 1); each ball array in one page.
+- **The contact solver:** pair rewritten: no R box test (d^2 >= R^2 covers it), the log of R^2 - d^2
+  inlined from log16 (its high byte is always 1 there: the pointers take the 256), log d folded into each
+  axis's index, the pushes by axis with the sign tested once, the first pass's work after the pushes. PairR
+  and Times32Lo/Hi went; Times32M1 came. **Against D24's letter:** log16's self-modified jump is now in
+  pair, which is too big for zero page; inlined it saves about 45 cycles a contact, against the 1 a zero
+  page patch saved. Rich agreed: D26. Zero page holds `eor.6502` alone now, &9F-&FB is free.
+- **The drawing:** the pixel paths without colhi (the same-colour paths are always in the well) and with a
+  quick setup for the same shape; plot_vertical's boundary list with the kind folded into each entry
+  (BndKind and BndCount gone: 829 bytes of tables); draw_balls with the anchors biased (one compare each),
+  a flag for when there are dying balls, and the next ball skipped when it's unchanged.
+- **The rest:** the score draws only the digits that changed (a buffer of what each cell shows) with a
+  pre-coloured font; the IRQ's palette writes as loops over tables; do_fail's quick reject; sparks, sound,
+  random, new_game, add_score, fill_box, main and the GAME OVER text tightened.
+- **The result,** seed 3's lockstep game (1,100 frames): median 46,480 -> 35,858 cycles, 95% 84,086 ->
+  63,850, the most 116,853 -> 92,735, over 80,000 84 -> 5. The repeated-explosion scene: 109 -> 56 of 250
+  over. Code room about 184 bytes -> 57 + 40 + 96 under &D00 + 958 above it; MASS's tables 829 bytes
+  smaller.
+- **Then** (Rich: "do the first two"): integrate tests only the x wall a ball's moving towards (every ball
+  starts a step in the well: lockstep's `inject` clamps its balls now, as the game's own are), and BallRU
+  and BallSize16 are set in add_ball, not every step (`test_physics.put` and lockstep's critical scene poke
+  them). Seed 3: median 35,834 -> 35,404, 95% 63,812 -> 63,119.
+- **Not done yet** (each small): Times6 biased, H stored as 255 - H, a high-byte table for pair's log, the
+  sweep entering pair after its first store, NumNear/NumMerges in zero page, the pixel path's go blocks
+  duplicated, a table for the sparks' decay, the IRQ saving X and Y in zero page.
 
 ---
 

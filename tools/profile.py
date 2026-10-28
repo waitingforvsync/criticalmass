@@ -8,16 +8,24 @@
 import argparse
 import bisect
 import collections
+import json
+import os
 
-from machine import Machine, Sentinel, StackTop
+from machine import Machine, Root, Sentinel, StackTop
 from test_physics import game_scenes, put
 
 
 def labels(m):
-	"""Every label in the code, main RAM's and zero page's, by address: (address, name)."""
+	"""Every label in MASS's code, main RAM's and zero page's, by address: (address, name). (MASS's own:
+	!BOOT's lie over MASS's code.)"""
+	with open(os.path.join(Root, "build", "mass.json")) as f:
+		d = json.load(f)
+	asm = next(a for a in d["assemblies"] if any(sec.get("labels", {}).get("payload_image") for sec in a["sections"]))
+	mass = {name: v["value"] for sec in asm["sections"]
+			for name, v in sec.get("labels", {}).items() if isinstance(v.get("value"), int)}
 	out = []
 	end = m.sym["code_end"]
-	for name, addr in m.sym.items():
+	for name, addr in mass.items():
 		if (m.sym["CodeOrg"] <= addr < end or m.sym["ZeroCodeOrg"] <= addr < 0xFC) and not name[0].isupper():
 			out.append((addr, name))
 	out.sort()

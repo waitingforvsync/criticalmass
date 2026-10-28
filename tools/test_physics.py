@@ -27,7 +27,8 @@ Fields = ("XLo", "XHi", "YLo", "YHi", "VXLo", "VXHi", "VYLo", "VYHi", "Size", "A
 def put(m, slot, b):
 	vals = {"XLo": b.x, "XHi": b.x >> 8, "YLo": b.y, "YHi": b.y >> 8, "VXLo": b.vx, "VXHi": b.vx >> 8,
 			"VYLo": b.vy, "VYHi": b.vy >> 8, "Size": b.size, "Age": b.age, "Hit": 0,
-			"IXLo": 0, "IXHi": 0, "IYLo": 0, "IYHi": 0}
+			"IXLo": 0, "IXHi": 0, "IYLo": 0, "IYHi": 0,
+			"RU": (RQ[b.size] + 3) // 4, "Size16": b.size * 16}	# (add_ball's, from the size)
 	for k, v in vals.items():
 		m.poke(m["Ball" + k] + slot, v & 0xFF)
 

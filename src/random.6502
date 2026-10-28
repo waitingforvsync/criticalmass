@@ -12,16 +12,15 @@
 .rand
 {
 	LDY #8
-	LDA Seed
+	LDA Seed+1
 .loop
-	LSR Seed+1:ROR A
+	LSR A:ROR Seed
 	BCC next
-	PHA
-	LDA Seed+1:EOR #&B4:STA Seed+1
-	PLA
+	EOR #&B4
 .next
 	DEY:BNE loop
-	STA Seed
+	STA Seed+1
+	LDA Seed
 	RTS
 }
 

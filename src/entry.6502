@@ -91,6 +91,7 @@ ASSERT payload_image + ((entry_end - payload_image + 255) AND &FF00) <= TitleAdd
 	LDA #0:STA vsyncs
 	LDA #2:STA &FE4D					; clear CA1, and enable it alone
 	LDA #&82:STA &FE4E					; system VIA: IER, CA1
+	JSR sound_init						; silent from the IRQ's first frame (MainVars unpack as 0s: loudest)
 	CLI
 	JMP main
 }
@@ -120,12 +121,13 @@ ASSERT payload_image + ((entry_end - payload_image + 255) AND &FF00) <= TitleAdd
 \\     lowspace: the zero page code's image (zeropage.6502), to zero_image_end
 \\
 \\ Outputs:
-\\     SqLo, SqHi; Times6Lo/Hi, Times11Lo/Hi; RowHi; PairR, PairR2Lo/Hi; PairCLo/Hi, PairCbLo/Hi
+\\     SqLo, SqHi; Times6Lo/Hi, Times11Lo/Hi; RowHi; PairR2Lo/Hi; PairCLo/Hi, PairCbLo/Hi
 \\     the rest of the made tables zeroed (the sparks' slots among them)
 \\     ZeroCodeOrg up: the zero page code
 \\     A, X, Y: corrupted
 
-PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less its PairCMatrix entry
+PairCBase = ExpW - GenExpWLo + GenPairCMin + 1	; a pair's pointer into ExpW, less its PairCMatrix entry: + 1,
+											; + 256 for pair's log's high byte, - 255 for its axis indices' bias
 
 .make_tables
 {
@@ -195,7 +197,7 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 	CLC:ADC #HI(WellAddr):STA RowHi,X
 	DEX:CPX #&FF:BNE rows
 
-	\\ each pair's R, at most 255 (none for two critical balls), and R^2
+	\\ each pair's R^2, from its R, at most 255 (none for two critical balls)
 
 	LDX #CriticalSize * 17				; 16 a + b: two critical balls first, then down
 .pairs
@@ -206,7 +208,6 @@ PairCBase = ExpW - GenExpWLo + GenPairCMin	; a pair's pointer into ExpW, less it
 	TXA:LSR A:LSR A:LSR A:LSR A:TAY		; a
 	LDA RadiusQ,Y:CLC:ADC r
 	BCC @+:LDA #255:.@
-	STA PairR,X
 	TAY:LDA SqLo,Y:STA PairR2Lo,X
 	LDA SqHi,Y:STA PairR2Hi,X
 .nextpair

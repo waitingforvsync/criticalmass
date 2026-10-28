@@ -19,19 +19,14 @@ ENDSECTION
 {
 	\\ the screen's drawn (the loader unpacked it): at a vsync the palette, and the display on
 
+	LDA #1:STA Flash					; (the IRQ sets the palette)
 	LDA vsyncs
 .waitvsync
 	CMP vsyncs:BEQ waitvsync
-	LDX #15
-.palloop
-	LDA Palette,X:STA &FE21				; video ULA: palette
-	DEX:BPL palloop
 	LDA #8:STA &FE00:LDA #&C0:STA &FE01	; CRTC R8: the display on, no cursor
 
 	LDA &FE44:STA Seed					; system VIA: T1 low, as random as anything
 	LDA &FE45:ORA #1:STA Seed+1			; (never 0)
-	LDA #0:STA Best:STA Best+1:STA Best+2
-	JSR sound_init
 	JSR new_screen						; (the limit's line: the well's clear already)
 	JSR new_game
 	LDA vsyncs:STA frame
@@ -39,9 +34,11 @@ ENDSECTION
 	LDA vsyncs:SEC:SBC frame
 	CMP #2:BCC loop						; two vsyncs a frame
 	CMP #6:BCC ontime					; a late frame's lost time is made up, but no more than a frame's
-	LDA vsyncs:SEC:SBC #2:STA frame		; (after a slow patch, no racing to catch up)
+	LDA vsyncs:STA frame				; (after a slow patch, no racing to catch up)
+	BCS go								; (always)
 .ontime
-	LDA frame:CLC:ADC #2:STA frame
+	LDA frame:ADC #2:STA frame			; (C clear)
+.go
 	LDA Over:BNE over					; (the IRQ reads the keys)
 	JSR game_frame
 	LDA Over:BEQ loop
@@ -59,19 +56,21 @@ ENDSECTION
 .keys
 	LDA Keys:AND #KeyDrop:BNE waitgo
 	LDA #1:STA Released
-	JMP loop
+	BNE loop							; (always)
 .waitgo
 	LDA Released:BEQ loop
 
 	\\ the best score: this game's, if it's higher (BCD compares as binary)
 
-	LDA Best:CMP Score
-	LDA Best+1:SBC Score+1
-	LDA Best+2:SBC Score+2
+	LDX #-3 AND &FF:SEC				; (X from -3: INX keeps the borrow)
+.compare
+	LDA Best - (-3 AND &FF),X:SBC Score - (-3 AND &FF),X
+	INX:BNE compare
 	BCS notbest
-	LDA Score:STA Best
-	LDA Score+1:STA Best+1
-	LDA Score+2:STA Best+2
+	LDX #2
+.copy
+	LDA Score,X:STA Best,X
+	DEX:BPL copy
 .notbest
 	JSR new_screen
 	JSR new_game

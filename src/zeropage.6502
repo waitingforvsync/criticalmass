@@ -1,7 +1,6 @@
-\\ zeropage.6502 - the code that runs in zero page (D24): the routines whose hot loops run on operands they
-\\ patch (or have patched), so each patch is a zero page store, 3 cycles and 2 bytes. The loader copies it
-\\ to ZeroCodeOrg from its image in the payload, where the near and merge lists go once the game runs
+\\ zeropage.6502 - the code that runs in zero page (D24): the routines whose hot loops run on operands
+\\ patched for them, so each patch is a zero page store, 3 cycles and 2 bytes. The loader copies it to
+\\ ZeroCodeOrg from its image in the payload, where the near and merge lists go once the game runs
 \\ (LowSpace: scratch until then).
 
 INCLUDE "eor.6502"
-INCLUDE "log16.6502"

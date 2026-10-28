@@ -42,36 +42,40 @@ NEXT
 	EOR #&0F:STA Keys
 
 	JSR sound_frame
-	PLA:TAY:PLA:TAX
 
 	\\ the pulse: every 8 vsyncs, white or cyan
 
-	LDA vsyncs:AND #7:BNE pulsed
-	LDA vsyncs:AND #8:BEQ pulseon
-	LDA #PulseOff:STA &FE21				; video ULA: palette
-	JMP pulsed
+	LDA vsyncs:AND #15:BEQ pulseon
+	CMP #8:BNE pulsed
+	LDA #PulseOff:BNE pulse				; (always)
 .pulseon
-	LDA #PulseOn:STA &FE21
+	LDA #PulseOn
+.pulse
+	STA &FE21							; video ULA: palette
 .pulsed
 
 	\\ the flash: every ball colour white, then the palette back
 
-	LDA Flash:BNE flash
-	LDA &FC
-	RTI
-.flash
-	DEC Flash:BNE whiten
-	JMP restore
+	LDA Flash:BEQ flashed
+	DEC Flash:BEQ restore
+	LDX #FlashBytes - 1
 .whiten
-FOR code = {CodeR, CodeG, CodeB, CodeY, CodeM, CodeC, CodeW, CodeP}
-	LDA #(code << 4) OR (White EOR 7):STA &FE21
-NEXT
-	LDA &FC
-	RTI
+	LDA flash,X:STA &FE21
+	DEX:BPL whiten
+	BMI flashed							; (always)
 .restore
-FOR i = 0..15
-	LDA #GenPalette[i]:STA &FE21
-NEXT
+	LDX #15
+.palette
+	LDA Palette,X:STA &FE21
+	DEX:BPL palette
+.flashed
+	PLA:TAY:PLA:TAX
 	LDA &FC
 	RTI
+
+.flash
+FOR code = {CodeR, CodeG, CodeB, CodeY, CodeM, CodeC, CodeW, CodeP}
+	EQUB (code << 4) OR (White EOR 7)
+NEXT
+FlashBytes = P% - flash
 }

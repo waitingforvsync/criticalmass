@@ -18,14 +18,13 @@ NextBallRows = GenNextBoxRows - 2
 {
 	ZA_AUTO2 ptr						; local: the row's first byte in the well
 
-	LDA #LO(WellAddr):STA ptr
 	LDA #HI(WellAddr):STA ptr+1
+	ASSERT LO(WellAddr) == 0, "the well starts a page"
+	LDA #0:STA ptr:TAY
 	LDX #FloorRow
 .row
-	LDA #0:TAY
-.loop
 	STA (ptr),Y							; the well's 32 byte columns: 256 bytes on from its first
-	INY:BNE loop
+	INY:BNE row
 	INC ptr+1:INC ptr+1
 	DEX:BNE row
 	ASSERT WellColumns * 8 == 256 AND RowBytes == 512, "a row of the well is 256 bytes, of a row's 512"
@@ -48,22 +47,19 @@ NextBallRows = GenNextBoxRows - 2
 .fill_box
 {
 	ZA_AUTO2 ptr						; local: the row's box
-	ZA_AUTO1 row, rows, colhi			; local: the row; rows left; the column's offset's high byte
 
-	STA row:STX rows
-	TYA:ASL A:ASL A:ASL A:STA ptr		; column * 8
-	TYA:LSR A:LSR A:LSR A:LSR A:LSR A:STA colhi
-.rowloop
+	STA ptr+1							; (the row, for now)
+	TYA:ASL A:ASL A:ASL A:STA ptr		; column * 8 (C: its top bit)
 	ASSERT RowBytes == 512, "a row is two pages"
-	LDA row:ASL A:ADC colhi				; (C clear: rows are under 128)
-	ADC #HI(WellAddr):STA ptr+1
+	LDA ptr+1:ROL A						; row * 2, + that
+	ADC #HI(WellAddr):STA ptr+1			; (C clear: rows are under 128)
 	LDA #0
-	LDY #GenBoxCols * 8 - 1
+.rowloop
+	LDY #GenBoxCols * 8
 .byte
-	STA (ptr),Y
-	DEY:CPY #&FF:BNE byte
-	INC row
-	DEC rows:BNE rowloop
+	DEY:STA (ptr),Y:BNE byte
+	INC ptr+1:INC ptr+1
+	DEX:BNE rowloop
 	RTS
 }
 

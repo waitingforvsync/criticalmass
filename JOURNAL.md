@@ -592,3 +592,39 @@ looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
   page), a row a frame from the bottom; `main` runs it from the game's end, then GAME OVER. Seen in
   jsbeeb: the balls go striped from the bottom up, then GAME OVER; RETURN starts a clean game.
   `test_background.py` checks the wipe on a scribbled well, GAME OVER over it, then `new_screen`.
+
+## 2026-10-29: the optimisation round (P24)
+
+- Rich: "get a bunch of agents to go through the code looking for optimisations, both size and speed ...
+  If we can speed up the render or the physics solver that would be great". Profiled first: a scratch
+  profiler plays seed 3's bot game in the model and the 6502 together and charges every cycle of
+  game_frame to its label. `tools/profile.py` had been charging MASS's cycles to !BOOT's labels where they
+  lie over MASS's code: it takes MASS's labels only now.
+- Five agents, one area each (pair and log16; apply, integrate, age and resweep; sweep and sort; the
+  plotter and draw_balls; the rest and size), each read-only on the repo, checking its own code against
+  the old in py65. Integrated one area at a time, with `make test` after each:
+
+  | after | median | 95% | most | over 80,000 |
+  |---|---|---|---|---|
+  | before | 46,480 | 84,086 | 116,853 | 84 |
+  | the broad phase | 44,832 | 80,344 | 113,949 | 58 |
+  | the drawing | 42,667 | 77,545 | 111,802 | 41 |
+  | the per-ball physics | 39,987 | 73,014 | 108,157 | 26 |
+  | the rest (score, IRQ, size) | 39,472 | 71,795 | 97,356 | 18 |
+  | the contact solver | 35,858 | 63,850 | 92,735 | 5 |
+
+  (seed 3's lockstep game, 1,100 frames.) The average frame: 47,549 -> 36,618 cycles. The explosion scene:
+  109 -> 56 of 250 over 80,000.
+- Every result byte-identical: no model change. jsbeeb: the palette, the drop's sound and the explosion's
+  flash as before.
+- Rich's own find: draw_glyph's CLC after two ASLs on a glyph under 64.
+- log16 is inlined into pair now (faster by about 45 cycles a contact), which takes its self-modified jump
+  out of zero page: against D24's letter, so it's Rich's call (P24).
+- Code room: 57 before IRQ1V, 40 before the plotter, 96 under &D00 (with 75 more if the near and merge
+  lists were arranged so NearB needn't be padded onto its own page), 958 above it (the tables 829
+  bytes smaller).
+- **Two more** (Rich: "do the first two"): integrate tests only the x wall a ball moves towards, and
+  BallRU and BallSize16 are set in add_ball. lockstep's `inject` now clamps its balls into the well, as the
+  game's are; `test_physics.put` and the critical scene poke the two arrays. Seed 3's median 35,834 ->
+  35,404, 95% 63,812 -> 63,119. The bytes integrate saved went to apply's page padding (59 bytes now):
+  moving apply to avoid it trips other routines' page checks, and there's room enough (914 above &D00).

@@ -16,6 +16,7 @@ from machine import Machine
 from mode2 import ScreenBase, ScreenSize, Screen
 from model import Bot, background, pct
 from physics import Params
+from tables import RQ
 from test_physics import get, want
 
 
@@ -53,7 +54,7 @@ def scene_critical(g, m):
 		b = Ball(size, (WellLeft + x) * One, y * One, age=255)
 		g.world.add(b)
 		for k, v in (("XLo", b.x), ("XHi", b.x >> 8), ("YLo", b.y), ("YHi", b.y >> 8), ("Size", size),
-					 ("Age", 255), ("State", 1)):
+					 ("Age", 255), ("State", 1), ("RU", (RQ[size] + 3) // 4), ("Size16", size * 16)):
 			m.poke(m["Ball" + k] + slot, v & 0xFF)
 		for k in ("VXLo", "VXHi", "VYLo", "VYHi", "IXLo", "IXHi", "IYLo", "IYHi", "Hit", "Grow"):
 			m.poke(m["Ball" + k] + slot, 0)
@@ -90,7 +91,8 @@ def walls_held(m, g, frame):
 
 
 def inject(m, g, size, x, y, vx=0):
-	"""A ball into both: the 6502's through its own alloc and add_ball."""
+	"""A ball into both: the 6502's through its own alloc, add_ball and clamp_ball (every ball starts a step
+	in the well, as the game's do: integrate tests only the wall it's moving towards)."""
 	from physics import Ball
 	m.call("alloc")
 	assert m.mpu.p & 1, "no free slot"
@@ -99,9 +101,13 @@ def inject(m, g, size, x, y, vx=0):
 		m.poke(m["Ball" + k] + slot, v & 0xFF)
 	m.mpu.x = slot
 	m.call("add_ball")
+	m.mpu.x = slot
+	m.call("clamp_ball")
 	m.poke(m["BallVXLo"] + slot, vx & 0xFF)
 	m.poke(m["BallVXHi"] + slot, (vx >> 8) & 0xFF)
-	g.world.add(Ball(size, x, y, vx, 0, age=255))
+	b = Ball(size, x, y, vx, 0, age=255)
+	g.world.clamp(b)
+	g.world.add(b)
 
 
 def main():

@@ -52,6 +52,10 @@ def exp_range():
 					lx = L8[qx] if qx else None
 					ly = L8[qy1]
 					ld = log16(R * R - d2) - log_d(lx, ly)
+					if lx is not None:
+						D = abs(lx - ly)
+						if D + H[D] == 255:			# pair's index for the smaller is 0: no push there
+							assert all(ld + c + min(lx, ly) < 0 for c in (C[a][b], C[b][a])), "pair: a push lost"
 					for c in (C[a][b], C[b][a]):
 						for l in (lx, ly):
 							if l is not None:
@@ -257,21 +261,18 @@ def main():
 	tables.append(table("PixBot", bots, "and the line after the last", "page"))
 
 	# the vertical path's boundaries (plot_vertical), fast shapes only: for each shape and parity, each byte
-	# column's run boundaries from the top, offset and kind (&80 left pixel, &01 right, 0 both); &FF ends a
-	# column
-	offs, kinds, start, count = [], [], [0, 0], [0, 0]
-	kind = {0xFF: 0x00, 0xAA: 0x80, 0x55: 0x01}
+	# column's run boundaries from the top, an offset under &40 plus its kind (&80 left pixel, &40 right, 0
+	# both); &FF ends a column and &FE the list
+	offs, start = [], [0, 0]
+	kind = {0xFF: 0x00, 0xAA: 0x80, 0x55: 0x40}
 	for s, sh in shapes.items():
 		for p in (0, 1):
 			start.append(len(offs))
-			n0 = len(offs)
 			if s > FastShapes:
-				count.append(0)
 				continue
 			for ci, (lead, single, full, smask, fmask) in enumerate(sh.runs[p]):
 				if ci:
 					offs.append(0xFF)
-					kinds.append(0)
 				if single:
 					bnd = [(lead, smask), (lead + single, smask ^ fmask), (lead + single + full, smask ^ fmask),
 						   (lead + 2 * single + full, smask)]
@@ -279,16 +280,16 @@ def main():
 					bnd = [(lead, fmask), (lead + full, fmask)]
 				for o, mk in bnd:
 					if mk:
-						offs.append(o)
-						kinds.append(kind[mk])
-			count.append(len(offs) - n0)
-	tables.append(table("BndOff", offs, "the vertical path's boundaries: offsets from the top (&FF: next column)",
-						"any"))
-	tables.append(table("BndKind", kinds, "and kinds: &80 the left pixel, &01 the right, 0 both", "any"))
+						assert o < 0x40, "a boundary's offset is under its kind's bits"
+						offs.append(o | kind[mk])
+			offs.append(0xFE)
+	ends = start[1:] + [len(offs)]
+	assert all(e - b <= 256 for b, e in zip(start, ends)), "plot_vertical: each list's under 256 bytes (X's range)"
+	tables.append(table("BndOff", offs, "the vertical path's boundaries: offsets from the top, plus &80 for the left "
+						"pixel, &40 the right (&FF: next column; &FE: the end)", "any"))
 	tables.append(expr("BndStartLo", f"LO(BndOff + {lst(start)})", len(start),
 					   "by 2 * shape + parity: where its boundaries start"))
 	tables.append(expr("BndStartHi", f"HI(BndOff + {lst(start)})", len(start), ""))
-	tables.append(table("BndCount", count, "and how many"))
 	tables.append(made("RowHi", [hi(layout.WellAddr) + (line >> 3) * 2 for line in range(Lines)],
 					   "by line: the high byte of its row's start in the well (a row is two pages)"))
 
@@ -310,6 +311,19 @@ def main():
 		v = [f(w) for w in WQ]
 		tables.append(table(name + "Lo", [lo(x) for x in v], comment))
 		tables.append(table(name + "Hi", [hi(x) for x in v], ""))
+	# what the 6502 takes for granted of them (physics.6502's sort, sweep, integrate and apply; game.6502's
+	# do_fail)
+	from game import DropSizes
+	left = [WellLeft * 256 + w * 64 for w in WQ]
+	right = [WellRight * 256 - w * 64 for w in WQ]
+	rim = [layout.RimLine * 256 + w * 64 for w in WQ]
+	held = [layout.RimLine * 256 - w * 64 for w in WQ]
+	real = range(1, CriticalSize + 1)
+	assert all(2 * RQ[z] * 64 >= 256 for z in real), "every ball's bottom is line 1 or more (sort's sentinel is 0)"
+	assert all(left[z] < right[z] for z in real), "integrate: a ball past the left wall can't be past the right"
+	assert max(rim[z] for z in real) < (layout.RimLine + 64) * 256, "do_fail: none at RimLine + 64 or below fails"
+	assert all(left[z] > 704 and RQ[z] * 64 > 704 for z in real), "apply: a push that fits a byte can't wrap past 0"
+	assert all(held[z] >= RQ[z] * 64 for z in DropSizes), "a drop starts below the screen's top (integrate)"
 
 	# the pairs, by 16 * size a + size b: the push's log constant on a ball of size a from one of size b
 	# (tables.py), as pointers into ExpW (a log l is at ExpW - Lo + l), and the other way round; R; R^2
@@ -321,7 +335,7 @@ def main():
 	n = len(ctab)
 	none = [a == 0 or b == 0 or b > CriticalSize for a in sizes for b in range(16)]
 	def pointers(tab, f):
-		return lambda addr: [0 if z else f(addr["ExpW"] - ExpWLo + c) for z, c in zip(none, tab)]
+		return lambda addr: [0 if z else f(addr["ExpW"] - ExpWLo + 1 + c) for z, c in zip(none, tab)]	# + 1: + 256 for pair's log's high byte, - 255 for its axis indices' bias
 	tables.append(made("PairCLo", pointers(ctab, lo),
 					   "by 16 * size a + size b: the push's log constant on a from b, as a pointer into ExpW",
 					   size=n))
@@ -330,7 +344,8 @@ def main():
 	tables.append(made("PairCbHi", pointers(cbtab, hi), "", size=n))
 	pr = by_pair(lambda a, b: 0 if a >= CriticalSize and b >= CriticalSize else pair_r(a, b))
 	assert max(pr) < 256
-	tables.append(made("PairR", pr, "R, quarter units (0: no pair): RadiusQ's sum, at most 255"))
+	assert all(D + H[D] <= 255 for D in range(256)), "pair: an axis's index fits a byte"
+	assert min(L8[128:]) >= 224, "pair's log: L8 of 128 up is 224 to 255, so AND 32 n - 1 adds 32 n - 256"
 	tables.append(made("PairR2Lo", [lo(r * r) for r in pr], "R^2: from the squares"))
 	tables.append(made("PairR2Hi", [hi(r * r) for r in pr], ""))
 	# the loader's: C for each pair, less the least (so a byte), by 12 * (a - 1) + b - 1
@@ -363,9 +378,8 @@ def main():
 		made_part("Times11Hi", [hi(v) for v in t11], "")], "page"))
 	tables.append(table("ExpW", [0 if L < 0 else EXP[min(L, 255)] for L in range(ExpWLo, ExpWHi + 1)],
 						f"EXP clamped, by log from {ExpWLo}: read through each ball's log as a pointer", "any"))
-	tables.append(table("Times32Lo", [lo(v * 32) for v in range(9)], "32 n, for log16"))
-	tables.append(table("Times32Hi", [hi(v * 32) for v in range(9)], ""))
-	tables.append(expr("ChainEntry", "0, LO(log16.chain + 3 * (8 - (1..8)))", 9, "log16's entries into its chain"))
+	tables.append(table("Times32M1", [max(0, 32 * v - 1) for v in range(9)], "32 n - 1, for pair's log (an AND)"))
+	tables.append(expr("ChainEntry", "0, LO(pair.chain + 3 * (8 - (1..8)))", 9, "pair's log's entries into its chain"))
 	tables.append(made("SqLo", [lo(v) for v in SQ], "v * v for v in 0..255 (the squares of |dx|, |dy|)", "page"))
 	tables.append(made("SqHi", [hi(v) for v in SQ], "", "page"))
 
@@ -392,10 +406,10 @@ def main():
 	# the panel's font (font.py) as masks, by glyph * 5 + row (each row drawn twice); the text as glyphs
 	gl, gr = [], []
 	for ch in font.Order:
-		cell = font.glyph_bytes(ch, 15)		# masks: every bit of a pixel that's set (ANDed with a colour)
+		cell = font.glyph_bytes(ch)			# in the text's colour (white): drawn as they are
 		gl += cell[0][0::2]
 		gr += cell[1][0::2]
-	tables.append(table("GlyphL", gl, "the font, by glyph * 5 + row: the left byte column's masks"))
+	tables.append(table("GlyphL", gl, "the font, by glyph * 5 + row: the left byte column's bytes, white"))
 	tables.append(table("GlyphR", gr, "and the right's"))
 	tables.append(table("OverText", [font.glyph_number(c) for c in "GAME OVER"] + [255],
 						"GAME OVER, as glyphs (255 ends it)"))
@@ -437,6 +451,9 @@ def main():
 	import screenpng
 	scr = Screen()
 	layout.background(scr)
+	for top in (layout.ScoreLine, layout.BestLine):			# draw_score keeps what each cell shows: blank at first
+		assert not any(scr.get(col, line) for col in range(layout.LabelCol, layout.LabelCol + 12)
+					   for line in range(top, top + 10)), "screen.png: the score's and the best's cells are blank"
 	with open(os.path.join(out, "screen.bin"), "wb") as f:
 		f.write(bytes(scr.mem))
 	with open(os.path.join(out, "title.bin"), "wb") as f:

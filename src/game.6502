@@ -17,27 +17,31 @@ NextX = GenNextX						; the next ball's centre in the panel, units: under NEXT
 NextY = GenNextY
 
 SECTION MainVars
-.Score			SKIP 3					; BCD, low byte first
-.Held			SKIP 1					; the held ball's size, and the next one's
-.Next			SKIP 1
-.DropperX		SKIP 2					; the held ball's centre, 8.8 units
+.Best			SKIP 3					; BCD, low byte first: the best score since the machine started
+.Score			SKIP 3					; BCD, low byte first (after Best: draw_score reads them as one)
 .Cooldown		SKIP 1					; frames until the next drop
-.HeldGrow		SKIP 1					; the held ball's shape as it grows in (0: hidden)
-.LastDrop		SKIP 1					; the slot last dropped, while it lives (255: none)
 .HoldLeft		SKIP 1					; frames the held ball may still wait for it
-.Released		SKIP 1					; non-zero once the drop key's been let go since a drop
 .Fail			SKIP 1					; frames a ball's been failing
 .Over			SKIP 1					; non-zero: game over
 .ChainLeft		SKIP 1					; frames of a chain left: merges then multiply
 .Chain			SKIP 1					; merges in the chain so far
 .NumCritical	SKIP 1
+.ScoreShown		SKIP 1					; non-zero once the score on the screen is right
+.Dying			SKIP 1					; non-zero once kill_ball has made one dying (draw_balls clears it)
+NewGameZeroes = P% - Score				; (Score to here: new_game zeroes them)
+.Held			SKIP 1					; the held ball's size, and the next one's
+.Next			SKIP 1
+.DropperX		SKIP 2					; the held ball's centre, 8.8 units
+.HeldGrow		SKIP 1					; the held ball's shape as it grows in (0: hidden)
+.LastDrop		SKIP 1					; the slot last dropped, while it lives (255: none)
+.Released		SKIP 1					; non-zero once the drop key's been let go since a drop
 .CriticalSlot	SKIP MaxCritical		; critical balls showing, and frames left
 .CriticalLeft	SKIP MaxCritical
 .Seed			SKIP 2					; the random LFSR
 .Keys			SKIP 1					; the keys down (the IRQ's)
 .FrameKeys		SKIP 1					; and as this frame took them
-.ScoreShown		SKIP 1					; non-zero once the score on the screen is right
 ENDSECTION
+ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 
 \\ Start a game: no balls, the score nought, two random sizes to drop.
 \\
@@ -49,19 +53,20 @@ ENDSECTION
 
 .new_game
 {
+	ASSERT StateFree == 0, "new_game's zeroes free the slots"
+	LDA #0
 	LDX #MaxBalls + 1
 .slots
-	LDA #StateFree:STA BallState,X
-	LDA #0:STA DrawnShape,X
+	STA BallState,X:STA DrawnShape,X
 	DEX:BPL slots
-	LDA #0
-	STA NumBalls:STA NumMerges:STA NumCritical
-	STA Score:STA Score+1:STA Score+2:STA ScoreShown
-	STA Cooldown:STA Fail:STA Over:STA Chain
-	STA ChainLeft:STA HoldLeft
+	STA NumBalls:STA NumMerges
+	LDX #NewGameZeroes - 1
+.zeroes
+	STA Score,X							; the score, cooldown, hold, fail, over, chain, criticals, shown, dying
+	DEX:BPL zeroes
 	LDA #255:STA LastDrop
 	LDA #1:STA Flash					; (the IRQ puts the palette back, in case it was mid-flash)
-	LDA #1:STA Released
+	STA Released
 	JSR drop_size:STA Held:STA HeldGrow
 	JSR drop_size:STA Next
 	LDA #LO((WellLeft + WellRight) DIV 2 * 256):STA DropperX
@@ -109,7 +114,8 @@ ENDSECTION
 {
 	LDA FrameKeys:AND #KeySlow:BEQ fast
 	LDX #LO(SlowSpeed):LDY #HI(SlowSpeed)
-	JMP gotspeed
+	ASSERT HI(SlowSpeed) <> 0, "do_keys' BNE: a speed's high byte isn't 0"
+	BNE gotspeed						; (always)
 .fast
 	LDX #LO(DropperSpeed):LDY #HI(DropperSpeed)
 .gotspeed
@@ -231,10 +237,14 @@ ENDSECTION
 \\     X: the slot
 \\
 \\ Outputs:
+\\     BallRU, BallSize16: from its size (for the sweep and pair: a ball's size is set only before this)
 \\     A, Y: corrupted
 
 .add_ball
 {
+	LDY BallSize,X
+	LDA RadiusU,Y:STA BallRU,X
+	LDA Times16,Y:STA BallSize16,X
 	LDA #StateLive:STA BallState,X
 	LDA #0
 	STA BallVXLo,X:STA BallVXHi,X:STA BallVYLo,X:STA BallVYHi,X
@@ -252,43 +262,48 @@ ENDSECTION
 \\     X: the slot
 \\
 \\ Outputs:
+\\     Dying set (draw_balls' scan)
 \\     A, Y: corrupted; X preserved
 
 .kill_ball
 {
-	LDA #StateDying:STA BallState,X
+	LDA #StateDying:STA BallState,X:STA Dying
 	CPX LastDrop:BNE notlast
 	LDA #255:STA LastDrop
 .notlast
-	STX slot
+	TXA
 	LDY #255
 .find
 	INY
-	LDA Order,Y:CMP slot:BNE find
+	CMP Order,Y:BNE find
 .shift
 	LDA Order+1,Y:STA Order,Y
 	INY:CPY NumBalls:BCC shift
 	DEC NumBalls
 	RTS
-	ZA_AUTO1 slot						; local
 }
 
-\\ Add to the score, BCD.
+\\ Add to the score, BCD: to its units, or (add_score.add_at) its hundreds.
 \\
 \\ Inputs:
-\\     A: the points, BCD, 0-99
+\\     A: the points, BCD, 0-99 (add_at: hundreds of them)
+\\     X (add_at): 0 for units, 1 for hundreds
 \\
 \\ Outputs:
-\\     Score; ScoreShown cleared; A corrupted
+\\     Score; ScoreShown cleared; A, X corrupted
 
 .add_score
 {
-	SED
-	CLC:ADC Score:STA Score
-	LDA Score+1:ADC #0:STA Score+1
-	LDA Score+2:ADC #0:STA Score+2
+	LDX #0
+.add_at
+	SED:CLC
+.byte
+	ADC Score,X:STA Score,X
+	INX:TXA:EOR #3:BEQ done				; (INX, TXA and EOR keep the carry)
+	LDA #0:BEQ byte						; (always)
+.done
 	CLD
-	LDA #0:STA ScoreShown
+	STA ScoreShown						; (A = 0)
 	RTS
 }
 
@@ -341,8 +356,8 @@ ENDSECTION
 	\\ the chain, and the score
 
 	LDA ChainLeft:BNE chained
-	LDA #0:STA Chain
-	JMP scored
+	STA Chain
+	BEQ scored							; (always)
 .chained
 	INC Chain
 .scored
@@ -424,11 +439,7 @@ ENDSECTION
 	INC piece
 	JMP pieces
 .exploded
-	SED									; the bonus: 100
-	LDA Score+1:CLC:ADC #1:STA Score+1
-	LDA Score+2:ADC #0:STA Score+2
-	CLD
-	LDA #0:STA ScoreShown
+	LDA #1:LDX #1:JSR add_score.add_at	; the bonus: 100
 	LDA #FlashVsyncs:STA Flash			; (the IRQ flashes every ball white)
 	LDA #SoundExplode:STA SoundReq
 	LDA #ChainFrames + 1:STA ChainLeft	; (counted down before a frame's merges)
@@ -510,6 +521,7 @@ ENDSECTION
 	LDY NumBalls:BEQ none
 .loop
 	LDX Order-1,Y
+	LDA BallYHi,X:CMP #RimLine + 64:BCS next	; well under the rim, whatever its size (most)
 	LDA BallHit,X:BEQ next
 	STY t
 	LDY BallSize,X
@@ -536,13 +548,23 @@ ENDSECTION
 \\ Draw every ball where it should be (game.py's draw): the dying away, each live one at its place once
 \\ it's moved a pixel across or two lines down from where it was drawn, the held ball over the rim and
 \\ the next in the panel.
+\\
+\\ Inputs:
+\\     the balls, Order, NumBalls; Dying: non-zero if any are dying; Held, Next, DropperX
+\\
+\\ Outputs:
+\\     the screen; the drawn records, AnchorX/Y (the centre drawn from, less 1 and 2); Dying cleared;
+\\     the dying slots freed
+\\     A, X, Y: corrupted
 
 .draw_balls
 {
 	ZA_AUTO1 slot, shape, xu, yu		; local
 
-	\\ the dying, away; their slots free
+	\\ the dying, away, if kill_ball made any; their slots free
 
+	LDA Dying:BEQ lives
+	LDA #0:STA Dying
 	LDX #MaxBalls - 1
 .dying
 	LDA BallState,X:CMP #StateDying:BNE notdying
@@ -554,33 +576,38 @@ ENDSECTION
 .notdying
 	DEX:BPL dying
 
-	\\ the live, in Order
+	\\ the live, in Order. The anchor is kept less 1 across and less 2 down, so each test is one
+	\\ compare: xu - (ax - 1) under 3 is under a pixel across, and yu - (ay - 2) - 1 under 3 is under
+	\\ two lines
 
+.lives
 	LDY NumBalls:BEQ held
 .live
-	STY index
-	LDX Order-1,Y:STX slot
-	LDA BallSize,X:STA colour
-	LDY BallGrow,X:BEQ full
+	LDX Order-1,Y
+	LDA BallGrow,X:BNE growing
+	LDA BallSize,X:STA shape
+	CMP DrawnShape,X:BNE moved
+.samecolour
+	CMP DrawnColour,X:BNE moved			; (C set after: the same)
+	LDA BallXHi,X:SBC AnchorX,X
+	CMP #3:BCS moved
+	LDA BallYHi,X:SBC AnchorY,X			; (C clear)
+	CMP #3:BCS moved
+	DEY:BNE live
+	BEQ held							; (always)
+.growing
 	DEC BallGrow,X
-	SEC:SBC #1							; a size smaller while it grows
-.full
-	STA shape
-	LDA BallXHi,X:STA xu
-	LDA BallYHi,X:STA yu
-	LDA DrawnShape,X:CMP shape:BNE moved
-	LDA DrawnColour,X:CMP colour:BNE moved
-	LDA xu:SEC:SBC AnchorX,X			; a pixel across?
-	BCS @+:EOR #&FF:ADC #1:.@
-	CMP #2:BCS moved
-	LDA yu:SEC:SBC AnchorY,X			; two lines down?
-	BCS @+:EOR #&FF:ADC #1:.@
-	CMP #2:BCC nextlive
+	LDA BallSize,X:SEC:SBC #1:STA shape	; a size smaller while it grows
+	CMP DrawnShape,X:BNE moved
+	LDA BallSize,X:JMP samecolour
 .moved
-	LDA xu:STA AnchorX,X
-	LDA yu:STA AnchorY,X
+	STY index:STX slot
+	LDA BallSize,X:STA colour
+	LDA BallXHi,X:STA xu
+	SEC:SBC #1:STA AnchorX,X
+	LDA BallYHi,X:STA yu
+	SEC:SBC #2:STA AnchorY,X
 	JSR plot_slot
-.nextlive
 	LDY index
 	DEY:BNE live
 
@@ -598,13 +625,16 @@ ENDSECTION
 	LDX #HeldSlot:STX slot
 	JSR plot_slot
 
-	\\ the next, in the panel
+	\\ the next, in the panel, if it's changed (its place never does)
 
-	LDA Next:STA shape:STA colour
+	LDA Next:CMP DrawnShape + NextSlot:BEQ done
+	STA shape:STA colour
 	LDA #NextX:STA xu
 	LDA #NextY:STA yu
 	LDX #NextSlot:STX slot
 	JMP plot_slot
+.done
+	RTS
 
 	ZA_AUTO1 index, colour				; local
 }

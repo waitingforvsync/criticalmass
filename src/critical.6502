@@ -21,7 +21,8 @@ SECTION Mass, org = EntryOrg - (payload_end - payload_image), load = &FFFF0000+p
 		EQUW irq						; IRQ1V
 
 		ASSERT P% == MainVarsOrg, "MainVars is the gap after IRQ1V"
-		SKIPTO BreakEffect				; (MainVars, memory.6502)
+		SKIPTO BreakEffect				; (MainVars, memory.6502: zeros, as unpacked; Best, the score's
+										; cells shown and the sound start from them)
 		EQUB 2							; *FX200: clear memory on BREAK
 
 		INCLUDE "random.6502"

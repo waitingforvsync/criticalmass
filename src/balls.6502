@@ -13,44 +13,79 @@ MergeAge = 4							; steps before a new ball can merge (the original's 10 frames
 WellLeft = 0							; the well in units, from its left edge (a unit is half a pixel)
 WellRight = WellColumns * 4
 
-SECTION Workspace
+SECTION Workspace						; (each array in one page: no indexed read crosses one)
+	INPAGE MaxBalls
 .BallXLo		SKIP MaxBalls			; 8.8 units, from the well's left (D18)
+	INPAGE MaxBalls
 .BallXHi		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallYLo		SKIP MaxBalls			; and its top
+	INPAGE MaxBalls
 .BallYHi		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallVXLo		SKIP MaxBalls			; 8.8 units a step, signed
+	INPAGE MaxBalls
 .BallVXHi		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallVYLo		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallVYHi		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallIXLo		SKIP MaxBalls			; the step's summed push: 32nds of a unit, signed
+	INPAGE MaxBalls
 .BallIXHi		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallIYLo		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallIYHi		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallBotLo		SKIP MaxBalls			; its bottom, y + r: the sort's key
-.BallBotHi		SKIP MaxBalls
+	INPAGE MaxBalls + 1
+.BallBotHi		SKIP MaxBalls + 1		; (+ 1: the sort's sentinel, slot MaxBalls, 0)
+	INPAGE MaxBalls
 .BallTopHi		SKIP MaxBalls			; its top's line, (y - r) >> 8
+	INPAGE MaxBalls
 .BallSize		SKIP MaxBalls
+	INPAGE MaxBalls
 .BallAge		SKIP MaxBalls			; steps since it was made, up to 255
+	INPAGE MaxBalls
 .BallHit		SKIP MaxBalls			; non-zero once it touches another this step
+	INPAGE MaxBalls
 .BallRU			SKIP MaxBalls			; RadiusU of its size, for the sweep's quick test
+	INPAGE MaxBalls
 .BallSize16		SKIP MaxBalls			; its size * 16: the pair tables' index
+	INPAGE MaxBalls + 2
 .BallState		SKIP MaxBalls + 2		; free, live or dying (game.6502); and the drawn records, the held
+	INPAGE MaxBalls + 2
 .BallGrow		SKIP MaxBalls + 2		; ball's and the next's past the balls'
+	INPAGE MaxBalls + 2
 .DrawnShape		SKIP MaxBalls + 2		; what's on the screen (shape 0: nothing)
+	INPAGE MaxBalls + 2
 .DrawnColour	SKIP MaxBalls + 2
+	INPAGE MaxBalls + 2
 .DrawnPx		SKIP MaxBalls + 2
+	INPAGE MaxBalls + 2
 .DrawnLine		SKIP MaxBalls + 2
-.AnchorX		SKIP MaxBalls + 2		; the centre it was drawn from, units: the hysteresis'
+	INPAGE MaxBalls + 2
+.AnchorX		SKIP MaxBalls + 2		; the centre it was drawn from, units, less 1 (and AnchorY less 2): the
+										; hysteresis' (draw_balls: one compare each)
+	INPAGE MaxBalls + 2
 .AnchorY		SKIP MaxBalls + 2
-.Order			SKIP MaxBalls			; the live slots, lowest bottom first
-.NumBalls		SKIP 1
+	INPAGE MaxBalls + 2					; (draw_balls and do_fail read Order-1,Y: on one page with the
+.NumBalls		SKIP 1					; byte before it)
+.Order			SKIP MaxBalls + 1		; the live slots, lowest bottom first, and the sort's sentinel
 ENDSECTION
+ASSERT HI(Order - 1) == HI(Order + MaxBalls), "Order-1,Y crosses a page"
 
 SECTION LowSpace						; (memory.6502: before &D00, where the code leaves room)
-.NearA			SKIP MaxNear			; the pairs that touched in the first pass, for the second
-.NearB			SKIP MaxNear
-.NumNear		SKIP 1
 .MergeA			SKIP MaxMerges			; touching pairs of a size, as found
 .MergeB			SKIP MaxMerges
+	INPAGE MaxNear + 1					; (resweep reads NearB-1,X and NearA-1,X: each list on one page
+.NumNear		SKIP 1					; with the byte before it)
+.NearB			SKIP MaxNear			; the pairs that touched in the first pass, for the second
+	INPAGE MaxNear + 1
 .NumMerges		SKIP 1
+.NearA			SKIP MaxNear
 ENDSECTION
+ASSERT HI(NearB - 1) == HI(NearB + MaxNear - 1), "resweep's NearB-1,X crosses a page"
+ASSERT HI(NearA - 1) == HI(NearA + MaxNear - 1), "resweep's NearA-1,X crosses a page"
