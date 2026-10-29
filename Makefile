@@ -40,7 +40,7 @@ $(GENERATED) &: tools/gendata.py tools/shapes.py tools/colours.py tools/tables.p
 
 $(BUILD)/mass.ssd: $(DEPS)
 	mkdir -p $(BUILD)/bin
-	$(BARON) -v --symbols $(BUILD)/mass.json -o $@ -p $(BUILD)/bin --title CRITMASS --opt 2 $(SRC) > $(BUILD)/mass.lst
+	$(BARON) -v --symbols $(BUILD)/mass.json -o $@ -p $(BUILD)/bin --title CRITICALMASS --opt 2 $(SRC) > $(BUILD)/mass.lst
 	$(PY) tools/check_inplace.py
 
 # b2 -0 with -b always starts a new process (only a lone file argument hands the disc to a running b2).

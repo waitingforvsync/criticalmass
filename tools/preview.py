@@ -9,7 +9,8 @@ import os
 import random
 
 from colours import Palette, SizeColours
-from mode2 import Screen
+from layout import WellCol
+from mode2 import Columns, Screen
 from render import ball_bytes, ball_bytes_from_pixels, eor_ball
 from shapes import CriticalSize, make_shapes, physics_radius
 
@@ -25,7 +26,7 @@ def sizes_sheet(shapes):
 	scr = Screen()
 	x, y, tallest = 1, 2, 0
 	for s, sh in shapes.items():
-		if x + sh.width + 2 > 128:
+		if x + sh.width + 2 > 2 * (Columns - WellCol):	# (x is from the well's left)
 			x, y, tallest = 1, y + tallest + 3, 0
 		tallest = max(tallest, sh.height)
 		eor_ball(scr, sh, x, y, s)

@@ -14,15 +14,16 @@ import math
 from dataclasses import dataclass, field
 
 # Drawn radius for each size, in units, from the original's 0.8 + 2s at 1.6 units a PICO-8 pixel (its
-# 80-pixel board is our 128-unit well). Size CriticalSize explodes (D8, P4). Sizes 1 to 10 run in equal
-# steps of 2.56 from the original's size 1 (D12: its 9 steps to its size 9 made 11 steps; D27 took the
-# largest away, as with it critical mass took near-perfect play). Two of the largest touching must stay
-# under 64 units for the collision maths (tables.py). The critical ball is one of the original's steps
-# past its size 10.
-CriticalSize = 11
+# 80-pixel board is our 128-unit well). Size CriticalSize explodes (D8, P4). Sizes 1 to 5 run in steps of
+# 2.56 from the original's size 1, as D12 had them; sizes 6 to 11 in equal steps on to LargeRadius (D32:
+# D12's 30.08 made critical mass take near-perfect play, and D27's 11 sizes made it too easy). Two of the
+# largest touching must stay under 64 units for the collision maths (tables.py). The critical ball is one
+# of the original's steps past its size 10.
+CriticalSize = 12
 MaxSize = CriticalSize
 SmallRadius = 1.6 * (0.8 + 2 * 1)		# 4.48
-Step = 1.6 * 2 * 8 / 10					# 2.56
+Step = 1.6 * 2 * 8 / 10					# 2.56: sizes 1 to 5
+LargeRadius = SmallRadius + 9 * Step	# 27.52: size 11
 CriticalRadius = 1.6 * (0.8 + 2 * 11)	# 36.48
 
 Margin = 0.75							# units the physics circle is outside the drawn one (3 quarter units)
@@ -39,7 +40,9 @@ def draw_radius(size):
 		return Overrides[size][0]
 	if size >= CriticalSize:
 		return CriticalRadius
-	return SmallRadius + (size - 1) * Step
+	if size <= 5:
+		return SmallRadius + (size - 1) * Step
+	return SmallRadius + 4 * Step + (size - 5) * (LargeRadius - SmallRadius - 4 * Step) / (CriticalSize - 6)
 
 
 def physics_radius(size):

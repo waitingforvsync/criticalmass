@@ -30,10 +30,11 @@ SizeColours = {
 	5: (B, C),							# azure
 	6: (R, Y),							# orange
 	7: (M, W),							# pink
-	8: (M, M),							# magenta (D27: green, (G, G), went with a size)
-	9: (G, C),							# sea green
-	10: (C, P),							# ice, pulsing: one merge from critical mass
-	11: (W, W),							# critical: white, then it explodes
+	8: (G, G),							# green (gone with D27's size, back with D32's)
+	9: (M, M),							# magenta
+	10: (G, C),							# sea green
+	11: (C, P),							# ice, pulsing: one merge from critical mass
+	12: (W, W),							# critical: white, then it explodes
 }
 
 

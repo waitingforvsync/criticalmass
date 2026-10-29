@@ -159,7 +159,7 @@ GAME OVER; RETURN counts once it's done.
 Rich, on P24's log16 against D24's letter: "yes, inline log16". pair takes its self-modified jump; zero page
 holds the plotter's EOR loops alone.
 
-### D27. 11 sizes: today's size 11 removed, green with it (2026-10-29, supersedes D12's 12)
+### D27. 11 sizes: today's size 11 removed, green with it (2026-10-29, supersedes D12's 12; superseded by D32)
 Rich, on P25: "keep the critical ball radius, and remove the size below. The colour I would like to remove
 is pure green, we keep both yellow/green and sea green."
 - Sizes 1 to 10 are as they were (4.48 to 27.52 in steps of 2.56). Critical mass is size 11, radius 36.48
@@ -229,6 +229,29 @@ Rich: "If we can add more particle effects during that time, that'd be great" (t
 - There are 32 spark slots (16 before), in the loader's tables, which now have no bytes spare.
   `update_sparks` looks no higher than `SparkTop`, past the highest slot in use, so a normal frame
   doesn't pay for the extra slots.
+
+### D32. 12 sizes again, the larger ones closer together (2026-10-29, supersedes D27's 11)
+Rich, after playing D27's game: "i reached critical mass on my first go. I think I would like to bring
+back the ball that we deleted before, but somehow make it a little less difficult." Then: "the important
+thing is that they look nice visually. if that means keeping the smaller sizes more or less the same and
+just compressing the larger sizes more, we'll do that. I also don't want a lot of overlaps, so maybe we
+keep the physical radii as they are for now." And: "make sure that the balls actually look round".
+- Sizes 1 to 5 as they were (4.48 to 14.72, steps of 2.56); sizes 6 to 11 in equal steps on to 27.52 (D27's
+  size 10): 16.85, 18.99, 21.12, 23.25, 25.39, 27.52. Critical mass is size 12, 36.48 as before. Each
+  raster was checked by eye, and nearby radii are no rounder.
+- Green is back, at 8: red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice
+  (pulsing), white.
+- The physics margin stays 0.75 (Rich).
+- The erring bot (tools/play.py --noise 3 --blur 0.5), three seeds each:
+
+  | sizes | games with critical mass | game length |
+  |---|---|---|
+  | D12's 12 (to 30.08) | 0 of 3 | 4.3 to 4.6 min |
+  | these 12 (to 27.52) | 1 of 3 (at 5.9 min) | 5.1 to 10.6 min |
+  | D27's 11 | 3 of 3, 10 explosions | 8 to 15+ min |
+
+- Also tried: every size compressed (the small ones look boxy: out), and drops of 1 to 6 (the board
+  fills with big leftovers: one game lost at 2.4 minutes; with the compression too, far too easy).
 
 ### D15. Releases go to the site's staging folder (2026-10-28)
 Rich: "publish the disk image to ~/dev/waitingforvsync.github.io/beeb/ in the same way that teddyboy does, as

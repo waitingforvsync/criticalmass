@@ -792,3 +792,18 @@ looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
   12 a frame), just outside the white ball: the newest inside the last, each flying out.
 - Rich: "let's just not hold the white ball so long before exploding, maybe about half a second is
   enough". CriticalHold 12 (full speed), and the rising tone back to its half second (slide -20, decay 2).
+
+## 2026-10-29: 12 sizes again, the larger ones closer together (D32)
+
+- Rich reached critical mass on his first game with D27's 11 sizes: "bring back the ball that we deleted
+  before, but somehow make it a little less difficult". Variants as copies of the model, the erring bot,
+  seeds 1 to 3: D12's 12 sizes, none (4.3 to 4.6 minutes); every size compressed into 4.48 to 27.52,
+  critical mass in seed 1, but the small sizes rasterise boxy (6 by 13 with four full columns); drops of 1
+  to 6, lost at 2.4 minutes (big leftovers); both, five explosions in 15 minutes.
+- Rich: keep the small sizes, compress the larger ones, keep the physics margin, and make sure they look
+  round. Sizes 1 to 5 as they were, 6 to 11 in equal steps to 27.52: one explosion in three games (at 5.9
+  minutes), games of 5 to 10.6 minutes. The rasters of 6 to 11 look round, and a scan of radii within
+  0.4 of each found none rounder. Green is back at 8.
+- `ShrinkSlot`'s assert is CriticalHold >= CriticalSize now (12 and 12): a burst's balls are freed on
+  the draw of its frame + CriticalSize - 1, and the next burst is CriticalHold frames after a merge.
+- `preview.py`'s sheet now wraps rows at the well's width (its x is from the well's left).

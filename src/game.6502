@@ -472,7 +472,7 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	LDA #StateShrink:STA BallState,X
 	LDA #CriticalSize:STA BallGrow,X	; (draw_balls takes a shape off before each drawing)
 	TXA:LDY NumShrink:STA ShrinkSlot,Y:INC NumShrink
-	ASSERT CriticalHold > CriticalSize, "a burst's balls are gone before the next: ShrinkSlot's MaxCritical"
+	ASSERT CriticalHold >= CriticalSize, "a burst's balls are gone before the next: ShrinkSlot's MaxCritical"
 	JSR blast
 
 	JSR rand:AND #7:TAX
