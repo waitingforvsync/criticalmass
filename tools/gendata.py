@@ -421,13 +421,16 @@ def main():
 	effects = [(1, 500, 8, 2, 1),			# drop: a low thud, falling
 			   (0, 120, 2, 0, 2),			# merge: a plink, lower for bigger balls
 			   (3, 0, 0, 0, 4),				# explode: noise, dying away
-			   (2, 300, 6, 0, 6)]			# game over: a long falling tone
+			   (2, 300, 6, 0, 6),			# game over: a long falling tone
+			   (2, 640, -20, 2, 2)]			# critical mass: a tone rising and fading as the player stands still
+	assert all(0 < per + sl * (16 - att) * dec < 1024 for ch, per, sl, att, dec in effects if ch < 3), \
+		"a tone's slide stays in the period's 10 bits until the effect's silent"
 	tables.append(table("Effects", [b for ch, per, sl, att, dec in effects
 									for b in (ch, lo(per), hi(per), sl, att, dec, 0, 0)],
 						"the effects: channel, period lo and hi, slide, attenuation, decay, 2 spare"))
 
-	# the sparks (sparks.py, P21), by direction: each speed's code, and the life (their slots are in zero
-	# page: memory.6502)
+	# the sparks (sparks.py, P21), by direction: each speed's code, and the life (their slots are the
+	# loader's tables, below)
 	import sparks
 	lines.append(f"GenSparkSlots = {sparks.Slots}")
 	most = max(sh.height // 2 for sh in shapes.values())

@@ -5,6 +5,7 @@ against the model's screen).
 	.venv/bin/python tools/frames.py [--frames 1500] [--seed 2]
 
 The game's own logic (dropper, merges, explosions, keys, score) isn't counted: it's small beside these.
+Nor are the sparks (P21): the model doesn't draw them here, as the 6502 isn't given them.
 """
 
 import argparse
@@ -24,6 +25,7 @@ def main():
 	ap.add_argument("--seed", type=int, default=2)
 	args = ap.parse_args()
 	game = Game(seed=args.seed, params=Params(), hyst_x=2, hyst_y=2)
+	game.sparks.frame = lambda screen: None	# (no sparks: see above)
 	bot = Bot(game, args.seed + 1000)
 	screen = Screen()
 	background(screen)
@@ -34,6 +36,7 @@ def main():
 	rows = []
 	for frame in range(args.frames):
 		bot.act()
+		game.before_step()					# (slow motion, and critical mass's stand-still and burst)
 		w = game.world
 		# the 6502 gets the balls as they are before the step, in the same order
 		for slot, b in enumerate(w.order):
@@ -48,9 +51,8 @@ def main():
 			if get(m, b.slot) != want(b):
 				print(f"FAIL physics at frame {frame}: slot {b.slot}")
 				sys.exit(1)
-		# undo it and let the game take its step (merges and all), so the bot's game goes on as usual:
-		# re-run from the saved state would be costly, so instead the game's step is the world's step
-		# just taken plus its own handling
+		# the game's step is before_step, the world's step just taken, and after_step: so the bot's game goes
+		# on as usual
 		game.after_step()
 		if game.over:
 			break

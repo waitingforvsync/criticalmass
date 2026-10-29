@@ -5,25 +5,38 @@ SparkDirs = 8
 
 \\ Throw a merge's ring: a spark each way, into the free slots from the first, while there are any. Thrown
 \\ at r / 2 units a frame along an axis, 3/4 of that on the diagonals, from half that many quarters out
-\\ (r, its drawn radius, along an axis).
+\\ (r, its drawn radius, along an axis), each living its direction's frames. throw_sparks.ring throws one
+\\ for another r (a burst's second); throw_sparks.lived, one whose sparks live a given time (D31: the
+\\ shrinking white ball's).
 \\
 \\ Inputs:
-\\     X: the new ball's slot
+\\     X: the ball's slot (a merge's new one, or a burst or shrinking critical one)
+\\     A (ring, lived): r
+\\     Y (lived): the sparks' life, frames
 \\
 \\ Outputs:
+\\     the sparks' slots; SparkTop, past the highest in use
 \\     A, X, Y: corrupted
 
 .throw_sparks
 {
 	ZA_AUTO1 xu, yu, even, odd, dir		; local: the ball's centre and colours; the direction
+	ZA_AUTO1 life						; local: the sparks' life (0: their directions')
 	ZA_AUTO 5, speed					; local: by a direction's code, 0, a, d, -a, -d (quarters a frame)
 
+	LDY BallSize,X
+	LDA HalfHeights,Y
+.ring
+	LDY #0
+.lived
+	STY life
+	ASL A:STA speed+1					; a: 2r quarters
 	LDA BallXHi,X:STA xu
 	LDA BallYHi,X:STA yu
 	LDY BallSize,X
 	LDA ColourEven,Y:STA even
 	LDA ColourOdd,Y:STA odd
-	LDA HalfHeights,Y:ASL A:STA speed+1	; a: 2r quarters
+	LDA speed+1
 	LSR A:LSR A:EOR #&FF:SEC:ADC speed+1	; d: 3/4 of it (a + NOT a / 4 + 1)
 	STA speed+2
 	LDA #0:STA speed
@@ -39,7 +52,9 @@ SparkDirs = 8
 	INX:CPX #SparkSlots:BCC find
 	RTS									; none left
 .found
-	LDA SparkDirLife,Y:STA SparkLife,X
+	CPX SparkTop:BCC @+:INX:STX SparkTop:DEX:.@	; (update_sparks looks no higher)
+	LDA life:BNE @+:LDA SparkDirLife,Y:.@
+	STA SparkLife,X
 	LDA even:STA SparkEven,X
 	LDA odd:STA SparkOdd,X
 	LDA #0:STA SparkKept0,X:STA SparkKept1,X

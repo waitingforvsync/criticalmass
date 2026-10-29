@@ -8,6 +8,7 @@ SoundDrop = 1
 SoundMerge = 2							; SoundParam: the new size
 SoundExplode = 3
 SoundOver = 4
+SoundRise = 5							; critical mass, as the game stands still on it
 
 SECTION MainVars
 .SoundReq		SKIP 1					; a request, or SoundNone: the game writes it, the IRQ takes it

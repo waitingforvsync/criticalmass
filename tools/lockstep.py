@@ -4,8 +4,9 @@
 
 Both start from the same seed (the 6502's Seed is the model's Rng). Each frame the bot decides its keys
 from the model; both get them; then every ball (in Order), the game's state (score, held, next, the
-dropper, cooldown, grow-in, fail) and the whole screen are compared. Then the frame's cycles: what
-game_frame costs, all in (keys, physics, merges, explosions, drawing).
+dropper, cooldown, grow-in, fail, the freeze and the calm after a burst) and the whole screen are
+compared. Then the frame's cycles: what game_frame costs, all in (keys, physics, merges, explosions,
+drawing).
 """
 
 import argparse
@@ -34,29 +35,43 @@ def state(m):
 	return {"score": bcd(m, m["Score"], 3), "held": m.peek(m["Held"]), "next": m.peek(m["Next"]),
 			"dropper": m.peek(m["DropperX"]) | m.peek(m["DropperX"] + 1) << 8,
 			"cooldown": m.peek(m["Cooldown"]), "grow": m.peek(m["HeldGrow"]), "fail": m.peek(m["Fail"]),
-			"over": m.peek(m["Over"]) != 0, "balls": m.peek(m["NumBalls"])}
+			"over": m.peek(m["Over"]) != 0, "balls": m.peek(m["NumBalls"]), "freeze": m.peek(m["Freeze"]),
+			"calm": m.peek(m["Calm"]), "slow": m.peek(m["Slow"]), "pace": m.peek(m["Pace"])}
 
 
 def model_state(g):
 	return {"score": g.score, "held": g.held, "next": g.next, "dropper": g.dropper_x, "cooldown": g.cooldown,
-			"grow": g.held_grow, "fail": min(g.fail, 255), "over": g.over, "balls": len(g.world.order)}
+			"grow": g.held_grow, "fail": min(g.fail, 255), "over": g.over, "balls": len(g.world.order),
+			"freeze": g.freeze, "calm": g.calm, "slow": g.slow, "pace": g.pace}
 
 
 def scene_critical(g, m):
 	"""A small pile, and two balls a merge from critical mass dropped into it: they merge to critical mass,
 	which explodes."""
-	from physics import Ball, One, WellLeft
 	from shapes import CriticalSize
 	big = CriticalSize - 1
-	balls = [(2, 30, 200), (3, 60, 196), (1, 90, 205), (4, 110, 190), (2, 48, 180), (3, 80, 175),
-			 (big, 40, 40), (big, 100, 60)]
+	place(g, m, [(2, 30, 200), (3, 60, 196), (1, 90, 205), (4, 110, 190), (2, 48, 180), (3, 80, 175),
+				 (big, 40, 40), (big, 100, 60)])
+
+
+def scene_twin(g, m):
+	"""Two pairs of balls a merge from critical mass, side by side, each falling onto the other of its
+	pair: two critical balls in one stand-still, which burst and shrink together."""
+	from shapes import CriticalSize
+	big = CriticalSize - 1
+	place(g, m, [(big, 30, 160), (big, 98, 160), (big, 30, 100), (big, 98, 96), (1, 64, 205), (2, 70, 60)])
+
+
+def place(g, m, balls):
+	"""Balls (size, x, y) into both, at rest, in slots from 0."""
+	from physics import Ball, One, WellLeft
 	for slot, (size, x, y) in enumerate(balls):
 		b = Ball(size, (WellLeft + x) * One, y * One, age=255)
 		g.world.add(b)
 		for k, v in (("XLo", b.x), ("XHi", b.x >> 8), ("YLo", b.y), ("YHi", b.y >> 8), ("Size", size),
 					 ("Age", 255), ("State", 1), ("RU", (RQ[size] + 3) // 4), ("Size16", size * 16)):
 			m.poke(m["Ball" + k] + slot, v & 0xFF)
-		for k in ("VXLo", "VXHi", "VYLo", "VYHi", "IXLo", "IXHi", "IYLo", "IYHi", "Hit", "Grow"):
+		for k in ("VXLo", "VXHi", "VYLo", "VYHi", "IXLo", "IXHi", "IYLo", "IYHi", "Hit", "Grow", "Link"):
 			m.poke(m["Ball" + k] + slot, 0)
 		m.poke(m["DrawnShape"] + slot, 0)
 		m.poke(m["Order"] + slot, slot)
@@ -115,8 +130,9 @@ def main():
 	ap.add_argument("--frames", type=int, default=3000)
 	ap.add_argument("--seed", type=int, default=2)
 	ap.add_argument("--scene", default="",
-					help="critical: a pile and two size-9 balls, no keys; explosions: a pile, two size-9 balls "
-						 "every 60 frames, and the bot (after the review's harness); walls: each drop size in turn "
+					help="critical: a pile and two balls a size under critical, no keys; twin: two pairs of them, "
+						 "bursting together, no keys; explosions: a pile, two "
+						 "such balls every 60 frames, and the bot (after the review's harness); walls: each drop size in turn "
 						 "pushed into both walls at full speed, Z and X together there, and dropped")
 	args = ap.parse_args()
 	g = Game(seed=args.seed, params=Params())
@@ -133,6 +149,8 @@ def main():
 	m.call("new_game")
 	if args.scene == "critical":
 		scene_critical(g, m)
+	elif args.scene == "twin":
+		scene_twin(g, m)
 	elif args.scene == "explosions":
 		import random
 		from physics import Floor, One, WellLeft
@@ -153,7 +171,7 @@ def main():
 			from shapes import CriticalSize
 			inject(m, g, CriticalSize - 1, round((WellLeft + 32) * One), round(40 * One))
 			inject(m, g, CriticalSize - 1, round((WellLeft + 96) * One), round(40 * One), vx=-One // 2)
-		if args.scene == "critical":
+		if args.scene in ("critical", "twin"):
 			keys = 0
 		elif args.scene == "walls":
 			walls_held(m, g, frame)
@@ -179,6 +197,7 @@ def main():
 			gb = get(m, slot)
 			wb = want(b)
 			gb["size"], wb["size"] = m.peek(m["BallSize"] + slot), b.size
+			gb["link"], wb["link"] = m.peek(m["BallLink"] + slot), b.link
 			if gb != wb:
 				bad.append(f"ball {i} (slot {slot}): got {gb} want {wb}")
 				break

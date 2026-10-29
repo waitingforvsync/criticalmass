@@ -12,7 +12,7 @@ from physics import Ball, Floor, One, Params, Rim, Stats, WellLeft, WellRight, W
 from render import ball_bytes
 from shapes import CriticalSize, make_shapes, physics_radius
 from sparks import Sparks
-from tables import WQ
+from tables import L8, WQ, exp_clamped, log_d
 from font import draw_text, score_text
 from layout import BestLine, LabelCol, NextX, NextY, ScoreLine
 
@@ -20,10 +20,21 @@ DropSizes = (1, 2, 3, 4, 5)			# sizes 1 to 5 now span what 1 to 4 did before 12 
 PatternCount = 8
 DropCooldown = 8						# the original's 20 frames
 FailSteps = 50							# the original's 120 frames
-CriticalHold = 6						# steps the critical ball shows before it explodes
+CriticalHold = 12						# frames the player stands still on the critical ball (the physics runs
+										# on), then it bursts (D29): half a second
+FailPause = 50							# frames after a burst with no failing: what it throws mustn't end the game
+SlowAfter = 12							# frames of slow motion from the burst (D30)
+ShedLife = 3							# frames a spark the shrinking white ball sheds lives (D31)
+ShedR = 24								# and the radius its rings are thrown at (r / 2 units a frame, from r out):
+										# the same each frame, so each ring is seen flying out
+FramePace = 2							# vsyncs a frame (main.6502's pace): 25 fps
+SlowPace = 6							# and in slow motion (D30)
 HoldWait = 50							# frames the held ball waits at most for the last drop to fall clear
-CriticalBonus = 100
-ChainSteps = 75							# merges this soon after an explosion are a chain
+CriticalBonus = 1000
+ChainAge = 25							# a ball made by a merge this recently (frames) chains on: its merge is the
+										# chain's next link, scoring double the last (D28)
+BlastLog = 394							# the blast's kick: K / d sixteenths of a unit a frame at d units, K 5120 (8
+										# units a frame at 40), as 32 log2 K
 MaxBalls = 48
 DropperSpeed = round(7.68 * One)		# 8.8 units a frame: the original's 2 px a frame
 SlowSpeed = round(1.152 * One)			# with the slow key: the original's 0.3 px a frame
@@ -56,6 +67,9 @@ class Piece:
 	vy: int
 
 
+PieceSpeed = (2.5, 6.0)				# a piece's speed out, units a frame: this, and this more at the edge
+
+
 def make_patterns(count=PatternCount, seed=7):
 	"""Explosion patterns: sizes 1 to 4 packed inside the critical ball without touching, moving out."""
 	rnd = random.Random(seed)
@@ -73,7 +87,7 @@ def make_patterns(count=PatternCount, seed=7):
 				d = rnd.uniform(0, R - r - 0.5)
 				x, y = round(2 * d * math.cos(a)) / 2, round(2 * d * math.sin(a)) / 2
 				if all(math.hypot(x - p.dx / One, y - p.dy / One) >= r + physics_radius(p.size) + 1 for p in pieces):
-					speed = 1.5 + 4.0 * d / R
+					speed = PieceSpeed[0] + PieceSpeed[1] * d / R
 					pieces.append(Piece(s, round(x * One), round(y * One), round(8 * speed * math.cos(a)) * 32,
 										round(8 * (speed * math.sin(a) - 3.0)) * 32))
 					break
@@ -111,9 +125,11 @@ class Game:
 		self.released = True				# the drop key's been let go since the last drop
 		self.dropper_x = (WellLeft + WellRight) // 2 * One
 		self.cooldown = 0
-		self.critical = []				# (ball, steps left)
-		self.chain_left = 0						# frames of a chain left: merges then multiply
-		self.chain = 0
+		self.critical = []				# critical balls showing: they burst when the hold's over
+		self.freeze = 0							# frames the player still stands still on them (the physics runs on)
+		self.shrinking = []						# burst balls drawn shrinking away: [ball, shape]
+		self.calm = 0							# frames of no failing left, after a burst
+		self.slow = 0							# frames of slow motion left (D30)
 		self.explosions = 0
 		self.merges = 0
 		self.dying = []					# balls gone, still drawn
@@ -136,9 +152,16 @@ class Game:
 			if v < len(DropSizes):
 				return v + 1
 
+	@property
+	def pace(self):
+		"""The vsyncs this frame shows for, as main.6502 paces it (D30): SlowPace in slow motion."""
+		return SlowPace if self.slow else FramePace
+
 	def keys(self, keys, via=None):
 		"""A frame's keys: move the dropper, and drop. via: the system VIA's T1 low byte as the 6502 reads it
 		(a drop's random fraction); a run of the model alone makes its own."""
+		if self.freeze:
+			return								# (the player stands still on critical mass: the keys aren't read)
 		self.via = self.via_rnd.randrange(256) if via is None else via
 		speed = SlowSpeed if keys & KeySlow else DropperSpeed
 		if keys & KeyLeft:
@@ -192,6 +215,7 @@ class Game:
 	def step(self):
 		if self.over:
 			return None
+		self.before_step()
 		w = self.world
 		total = Stats()
 		substeps = max(1, w.p.rate // 25)
@@ -204,13 +228,22 @@ class Game:
 		self.after_step()
 		return total
 
+	def before_step(self):
+		"""The game's side of a frame, before the world's step: slow motion counted (D30); and the player
+		standing still on critical mass while the physics runs on, then, first thing in the frame, the
+		burst (D29)."""
+		if self.slow:
+			self.slow -= 1
+		if self.freeze:
+			self.freeze -= 1
+			if not self.freeze:
+				self.burst()
+
 	def after_step(self):
 		"""The game's side of a frame, once the world has taken its (last) step."""
 		self.step_no += 1
 		self.cooldown = max(0, self.cooldown - 1)
-		self.chain_left = max(0, self.chain_left - 1)
 		self.merge(self.world.merges)
-		self.explode()
 		self.update_fail()
 
 	def merge(self, merges):
@@ -228,42 +261,72 @@ class Game:
 			c = Ball(size, (a.x + b.x) // 2, (a.y + b.y) // 2, grow=2)
 			w.clamp(c)							# (a bigger ball at the midpoint may reach a wall)
 			w.add(c)
-			self.sparks.throw(size, c.x >> 8, c.y >> 8, self.shapes[size].height // 2)
-			chained = self.chain_left > 0
-			self.chain = self.chain + 1 if chained else 0
-			self.score += a.size * (1 + self.chain)
+			# the chain: a link past the merging balls' made this recently, and each link scores double
+			c.link = 1 + max((x.link for x in (a, b) if x.age < ChainAge), default=0)
+			self.score += a.size << (c.link - 1)
 			self.merges += 1
 			if size == CriticalSize:
-				c.grow = 0
-				self.critical.append([c, CriticalHold + 1])
+				c.grow = 0						# shown whole, white, and the player stands still on it
+				self.critical.append(c)
+				self.freeze = CriticalHold
+			else:
+				self.sparks.throw(size, c.x >> 8, c.y >> 8, self.shapes[size].height // 2)
 
-	def explode(self):
-		"""Critical balls explode after showing for CriticalHold frames."""
+	def burst(self):
+		"""The freeze is over: each critical ball out of the physics, drawn shrinking away a shape a frame; every
+		other ball kicked away from it; its pattern's pieces thrown out (each a chain's first link); two
+		rings of sparks; the bonus. Then no failing for a while."""
 		w = self.world
 		shift = {25: 0, 50: 1}[w.p.rate]	# the patterns' velocities are a 25 Hz frame's
-		for entry in list(self.critical):
-			c, left = entry
-			entry[1] -= 1
-			if entry[1] > 0:
-				continue
-			self.critical.remove(entry)
+		for c in self.critical:
 			if c.dead:
 				continue
 			c.dead = True
 			w.order.remove(c)
-			self.dying.append(c)
+			self.shrinking.append([c, CriticalSize])
+			self.blast(c)
 			pattern = self.patterns[self.rnd.byte() & (PatternCount - 1)]
 			for p in pattern:
-				piece = Ball(p.size, c.x + p.dx, c.y + p.dy, p.vx >> shift, p.vy >> shift)
+				if len(w.order) + len(self.shrinking) >= MaxBalls:
+					break						# (the 6502's slots: the live, and the shrinking)
+				piece = Ball(p.size, c.x + p.dx, c.y + p.dy, p.vx >> shift, p.vy >> shift, link=1)
 				w.clamp(piece)
 				w.add(piece)
+			r = self.shapes[CriticalSize].height // 2
+			self.sparks.throw(CriticalSize, c.x >> 8, c.y >> 8, r)
+			self.sparks.throw(CriticalSize, c.x >> 8, c.y >> 8, r // 2)
 			self.score += CriticalBonus
 			self.explosions += 1
-			self.chain_left = ChainSteps + 1
 			self.events.append(("explode", self.step_no))
+		self.critical = []
+		self.calm = FailPause
+		self.slow = SlowAfter					# (slow motion from this frame)
+
+	def blast(self, c):
+		"""Kick every ball in play away from c's centre: K / d along the line from it, d in units, worked
+		as the physics works its pushes, through the log tables (K / d * |dx| / d is exp(log K + log |dx|
+		- 2 log d))."""
+		for b in self.world.order:
+			adx, ady = abs(b.x - c.x) >> 8, abs(b.y - c.y) >> 8
+			if adx == 0 and ady == 0:
+				continue
+			lx = L8[adx] if adx else None
+			ly = L8[ady] if ady else None
+			base = BlastLog - 2 * log_d(lx, ly)
+			kx = exp_clamped(base + lx) << 4 if adx else 0	# sixteenths of a unit, as 8.8
+			ky = exp_clamped(base + ly) << 4 if ady else 0
+			b.vx += kx if b.x >= c.x else -kx
+			b.vy += ky if b.y >= c.y else -ky
 
 	def update_fail(self):
 		w = self.world
+		if self.freeze or self.calm:		# standing still on critical mass, or just after a burst: nothing fails
+			if not self.freeze:
+				self.calm -= 1
+			self.fail = 0
+			for b in w.order:
+				b.failing = 0
+			return
 		# failing: a ball poking above the rim while touching another, for FailSteps
 		any_failing = False
 		for b in w.order:
@@ -320,6 +383,15 @@ class Game:
 		for b in self.dying:
 			move(b, None)
 		self.dying = []
+		# the burst critical balls, a shape smaller each frame until they're gone (in white, about the
+		# centre they were drawn from)
+		for entry in self.shrinking:
+			c = entry[0]
+			entry[1] -= 1
+			move(c, self.target(entry[1], CriticalSize, *c.anchor) if entry[1] else None)
+			if entry[1]:					# and a ring of short-lived sparks (D31)
+				self.sparks.throw(CriticalSize, c.x >> 8, c.y >> 8, ShedR, ShedLife)
+		self.shrinking = [e for e in self.shrinking if e[1]]
 		for b in self.world.order:
 			shape = b.size - 1 if b.grow > 0 else b.size
 			b.grow = max(0, b.grow - 1)

@@ -72,6 +72,7 @@ test: $(BUILD)/mass.ssd
 	$(PY) tools/test_physics.py --scenes 10 --steps 20
 	$(PY) tools/lockstep.py --frames 400
 	$(PY) tools/lockstep.py --scene critical --frames 200
+	$(PY) tools/lockstep.py --scene twin --frames 150
 	$(PY) tools/lockstep.py --scene explosions --frames 250 --seed 9
 	$(PY) tools/lockstep.py --scene walls --frames 500 --seed 7
 	$(PY) tools/lockstep.py --frames 1100 --seed 3

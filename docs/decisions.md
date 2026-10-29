@@ -159,6 +159,77 @@ GAME OVER; RETURN counts once it's done.
 Rich, on P24's log16 against D24's letter: "yes, inline log16". pair takes its self-modified jump; zero page
 holds the plotter's EOR loops alone.
 
+### D27. 11 sizes: today's size 11 removed, green with it (2026-10-29, supersedes D12's 12)
+Rich, on P25: "keep the critical ball radius, and remove the size below. The colour I would like to remove
+is pure green, we keep both yellow/green and sea green."
+- Sizes 1 to 10 are as they were (4.48 to 27.52 in steps of 2.56). Critical mass is size 11, radius 36.48
+  as before.
+- The colours: red, yellow, violet, lime, azure, orange, pink, magenta, sea green, ice (pulsing), white.
+- Rich on difficulty: "I don't want to make it too easy to reach critical mass either. It should happen
+  once in a while when playing, not every time." To be tuned by his play.
+
+### D28. Chain reactions score double each link; critical mass scores 1,000 (2026-10-29)
+Rich: "can we improve the scoring mechanism so you get increasingly bigger scores for "chain reaction"
+merges. And award a good bonus for reaching critical mass." He took Claude's proposal:
+- Each ball has a link. A dropped ball's is 0. A merge's ball is a link past the larger of its two balls'
+  links, counting only balls made within the last second (ChainAge, 25 frames); otherwise it's link 1.
+- A merge scores its size times 1, 2, 4, 8... by link (size x 2^(link - 1)). A 3 cascading to a 7 scores
+  3 + 8 + 20 + 48 + 112 = 191, against 25 before.
+- An explosion's pieces are link 1, so the merges they set off chain too. This replaces the three-second
+  multiplier after an explosion.
+- The critical mass bonus is 1,000 (it was 100).
+
+### D29. The explosion: the player stands still on the white ball, then it bursts (2026-10-29)
+Rich: "on the moment of contact of the two flashing balls, they merge to the final big white ball ... I
+think we should pause on the big white ball for half a second and then we want to throw other balls
+outwards with force while the white ball shrinks to zero, maybe some particle effects too." He took
+Claude's plan, with "no screen shake":
+- The merge makes the white ball whole at once, with a rising tone. The player stands still for half a
+  second at full speed (12 frames), no keys. (Rich tried a second, "Keep the white ball visible longer at
+  full update speed", then "not hold the white ball so long before exploding, maybe about half a second
+  is enough".) The physics runs on (Rich, after seeing it frozen: "i would just like to try
+  continuing to simulate physics during the half second pause so it doesn't look quite so unnatural"),
+  so the white ball pushes its neighbours aside rather than showing black where it overlaps them.
+- Then, first thing in the frame after, the burst:
+  - The white ball leaves the physics and is drawn a shape smaller each frame until it's gone.
+  - Every other ball is kicked away from its centre at K/d (8 units a frame at 40 units), worked through
+    the physics' log tables.
+  - The pieces fly out faster than before (2.5 units a frame, plus 6 more at the edge).
+  - Two rings of white sparks, the flash and the boom.
+- Nothing fails from the frame critical mass is made until 50 frames after the burst, so what the burst
+  throws above the rim can't end the game (and, the review's find, nor can a pile that's been failing for
+  two seconds just as the critical ball forms).
+- The colours stay as D27 has them "for the moment" (pink beside magenta).
+
+### D30. Slow motion around critical mass: a frame every 6 vsyncs (2026-10-29)
+Rich: "I still think it's over too quickly. Can we slow things down to half-speed update when the white
+ball is present and exploding?" A half timestep was tried first (half the gravity, half the velocity's
+way). Then Rich: "let's forget the half timestep, and just halve the framerate instead. The stop motion
+look might work", then "let's exaggerate the slowdown even more, 6 frames between updates instead of 2
+or 4", and "if it is the irq routine which normally sets the frame pacing, it would be good just to be
+able to set the value directly that it uses".
+- `main` paces a frame every `Pace` vsyncs: 2 (25 fps), or 6 in slow motion (8.3 a second). The game sets
+  it: SlowPace at the burst, FramePace again when slow motion's over. The game's frame is unchanged:
+  nothing is skipped, so slow motion costs nothing in a normal frame, and its frames have three times
+  the time.
+- Rich: "let's not slow down until the explosion". Slow motion is the burst's frame and the 11 after
+  (`Slow`, 12): the shrinking white ball and what the burst throws.
+- The IRQ's flash, pulse and sound run on at 50 Hz.
+
+### D31. The shrinking white ball sheds sparks (2026-10-29)
+Rich: "If we can add more particle effects during that time, that'd be great" (the slow motion).
+- In each frame of its shrinking, the burst's white ball throws a ring of 8 white sparks. They live 3
+  frames (ShedLife). At first each ring was thrown from its edge, so the rings shrank with it; Rich: "the
+  sparks look like they're going inwards, but i would like them to look as if they are exploding
+  outwards". Now every ring is thrown alike (ShedR, 24: from 24 units out at 12 a frame), so each is
+  seen flying out, the newest inside the last. Until the
+  burst's own sparks leave the well, the pool can't hold every ring, so an early one can come out partial.
+- Two critical balls bursting together shed in the order they burst, in both the model and the 6502
+  (`ShrinkSlot`): lockstep's `twin` scene checks it.
+- There are 32 spark slots (16 before), in the loader's tables, which now have no bytes spare.
+  `update_sparks` looks no higher than `SparkTop`, past the highest slot in use, so a normal frame
+  doesn't pay for the extra slots.
+
 ### D15. Releases go to the site's staging folder (2026-10-28)
 Rich: "publish the disk image to ~/dev/waitingforvsync.github.io/beeb/ in the same way that teddyboy does, as
 part of the release workflow".
@@ -492,6 +563,24 @@ Red, yellow, violet, lime, azure, orange, pink, green, magenta, sea green, ice (
 - **Not done yet** (each small): Times6 biased, H stored as 255 - H, a high-byte table for pair's log, the
   sweep entering pair after its first store, NumNear/NumMerges in zero page, the pixel path's go blocks
   duplicated, a table for the sparks' decay, the IRQ saving X and Y in zero page.
+
+### P25. One size fewer, so critical mass can be reached (2026-10-29, for D27: (b))
+- Rich: "My feeling is that it probably is not, and we may need to tune it a bit, maybe removing one of
+  the ball sizes". The journal (2026-10-29) has the games.
+- With 12 sizes, a lookahead bot that sees each drop's result exactly (`tools/play.py`) reached critical
+  mass in 2 of 3 games: 3 explosions, the first at 4.4 and 4.9 minutes. A critical ball takes at least 330
+  drops' mass, and it needed about 333. Given aiming and judging errors, it never did (0 of 3). It reached
+  11 at about 2.5 minutes and lost about 2 minutes later.
+- With 11 sizes (critical mass at 11: half the mass), the erring bot reached it in all 6 games:
+  - (a) **the same range**, steps of 2.84 (the biggest playable ball stays 30.08): 4 explosions in 3
+    games, the first at 2.1 to 2.6 minutes; games of 5 to 7 minutes.
+  - (b) **today's size 11 removed** (sizes 1 to 10 unchanged, critical mass after 10): 10 explosions in 3
+    games; games of about 8 minutes, and one alive at the 15-minute cap.
+- **Proposed:** (b). It played best, and it's the smaller change: the shapes of sizes 1 to 10 and the
+  critical ball stay as they are, and one shape and colour go (the pulsing ice would go to size 10).
+  Whether the critical ball should stay 36.48 or shrink to one step past 10 (30.08) is open.
+- The 6502 takes the critical size from gendata (`GenCriticalSize`), so it's mostly `shapes.py` and
+  `colours.py`; the tables and tests follow.
 
 ---
 

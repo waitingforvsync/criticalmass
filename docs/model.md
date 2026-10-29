@@ -32,11 +32,11 @@ The Python model in `tools/` is the reference for the 6502. It holds:
 
 ## The shapes and colours
 
-- The shapes are made from the drawn radius (D12). Sizes 1 to 11 run in equal steps of 2.56 units, from the
-  original's size 1, 1.6 (0.8 + 2) = 4.48 units, to its size 9, 30.08. The critical ball (12) is 36.48, one
-  of the original's steps past its size 10. Balls collide at r(s) + 0.75 (P12).
-  - Two of the largest touching must stay under 64 units for the collision maths. That's why the range
-    stays put and the steps got smaller.
+- The shapes are made from the drawn radius (D12, D27). Sizes 1 to 10 run in equal steps of 2.56 units,
+  from the original's size 1, 1.6 (0.8 + 2) = 4.48 units, to 27.52. The critical ball (11) is 36.48, one of
+  the original's steps past its size 10. Balls collide at r(s) + 0.75 (P12).
+  - Two of the largest touching must stay under 64 units for the collision maths. That's why D12 kept the
+    range and made the steps smaller; D27 then took the largest size away.
   - For each size the generator picks whichever width and height parity fits the circle best.
   - The sizes come out 4×8, 7×14, 10×20, 12×24, 14×29, 17×34, 19×39, 22×45, 24×49, 27×55, 30×60 and
     36×72 (pixels × lines).
@@ -50,13 +50,13 @@ The Python model in `tools/` is the reference for the 6502. It holds:
 - **The palette (D10):**
   - The ball codes are the odd-parity logical colours: R 1, G 2, B 4, Y 7, M 8, C 11 and W 13, plus P 14,
     a second white.
-  - P is used only by size 9, so the IRQ can make the balls one merge from critical pulse.
+  - P is used only by size 10, so the IRQ can make the balls one merge from critical pulse.
   - Every even code is black.
 - **The sizes:**
   - 1 is red and 2 is yellow, both solid.
-  - Then the dithers: 3 violet (B/M), 4 lime (G/Y), 5 azure (B/C), 6 orange (R/Y), 7 pink (M/W), 8 sea
-    green (G/C) and 9 ice (C/P).
-  - 10, the critical size, is white.
+  - Then 3 violet (B/M), 4 lime (G/Y), 5 azure (B/C), 6 orange (R/Y), 7 pink (M/W), 8 magenta (solid),
+    9 sea green (G/C) and 10 ice (C/P).
+  - 11, the critical size, is white.
   - Neighbouring sizes differ in hue, so a pair to merge stands out.
 
 ## The physics: what the model settled
@@ -136,15 +136,27 @@ That's O2 in `decisions.md`.
 
 ## Critical mass
 
-- Two size-11 balls merge into a size-12 ball. It shows white for 6 frames (CriticalHold) and is solid for
-  that time, then explodes. Its pairs' R is capped at 255 quarter units, so it can overlap its neighbours
-  by up to about 4 units in that time.
-- One of eight patterns replaces it, each 5 to 7 pieces of sizes 1 to 4. The pieces are placed largest
-  first without touching, cover 35% to 70% of the big ball's area, and fly outwards and upwards.
-  - The patterns are stored a byte a number: offsets in half units, velocities in eighths of a unit a
-    step.
-- Score: each merge scores its size. An explosion scores 100. Merges within 3 s of an explosion are a
-  chain, and score their size × (1 + chain count).
+- Two size-10 balls merge into the size-11 ball, white and whole at once (D29). The player stands still on
+  it for 12 frames, half a second (CriticalHold, `Game.freeze`): no keys, while the physics runs on. Its pairs' R is
+  capped at 255 quarter units, so it can overlap its neighbours by up to about 4 units meanwhile.
+- Then, first thing in the next frame, it bursts (`Game.burst`):
+  - It leaves the physics and is drawn a shape smaller each frame, in white, about the centre it was
+    drawn from, until it's gone (`shrinking`).
+  - Every other ball is kicked away from its centre at K/d sixteenths of a unit a frame, d in units (8
+    units a frame at 40): `Game.blast`, through the physics' log tables.
+  - One of eight patterns replaces it, each 5 to 8 pieces of sizes 1 to 4. The pieces are placed largest
+    first without touching, cover 35% to 70% of the big ball's area, and fly outwards and upwards at 2.5
+    units a frame, plus 6 more at the edge. They're stored a byte a number: offsets in half units,
+    velocities in eighths of a unit a step.
+  - Two rings of white sparks, from its edge and from halfway out. As it shrinks, it throws a ring of
+    white sparks each frame, from 24 units out at 12 a frame, living 3 frames (D31). There are 32 spark slots.
+  - Nothing fails for 50 frames after it (`calm`).
+- Slow motion (D30, `Game.slow`): from the burst, for 12 frames, `main.6502` paces a frame every 6 vsyncs,
+  not 2 (`Game.pace`). The model's frames are the same;
+  only the videos show each for its pace.
+- Score (D28): each ball has a link. A drop's is 0; a merge's ball is a link past the larger of its two
+  balls' links, counting only those made within 25 frames (ChainAge), or else link 1. A merge scores its
+  size × 2^(link − 1). The pieces are link 1. Critical mass scores 1,000.
 - `scenario.py critical` shows one.
 
 ## Videos
@@ -153,7 +165,7 @@ That's O2 in `decisions.md`.
 writes `scene-critical.mp4`. They're 25 fps at 2× scale, with each MODE 2 pixel 2 TV pixels wide.
 
 `lockstep.py` checks the 6502's screen against the model's every frame. So these videos show exactly what
-the BBC draws, palette effects aside (the size-9 pulse and the explosion's flash happen in the IRQ, not in
+the BBC draws, palette effects aside (the size-10 pulse and the explosion's flash happen in the IRQ, not in
 the screen's memory):
 - `build/model/game-2-tonight.mp4`: 90 seconds of the bot playing, with the physics before P12.
 - `build/model/scene-critical.mp4`: an explosion.

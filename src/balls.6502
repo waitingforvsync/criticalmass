@@ -51,11 +51,13 @@ SECTION Workspace						; (each array in one page: no indexed read crosses one)
 	INPAGE MaxBalls
 .BallHit		SKIP MaxBalls			; non-zero once it touches another this step
 	INPAGE MaxBalls
+.BallLink		SKIP MaxBalls			; its chain's link (D28): a merge's ball 1 or more, a drop's 0
+	INPAGE MaxBalls
 .BallRU			SKIP MaxBalls			; RadiusU of its size, for the sweep's quick test
 	INPAGE MaxBalls
 .BallSize16		SKIP MaxBalls			; its size * 16: the pair tables' index
 	INPAGE MaxBalls + 2
-.BallState		SKIP MaxBalls + 2		; free, live or dying (game.6502); and the drawn records, the held
+.BallState		SKIP MaxBalls + 2		; free, live, dying or shrinking (game.6502); and the drawn records, the held
 	INPAGE MaxBalls + 2
 .BallGrow		SKIP MaxBalls + 2		; ball's and the next's past the balls'
 	INPAGE MaxBalls + 2

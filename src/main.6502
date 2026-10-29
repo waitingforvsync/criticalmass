@@ -1,10 +1,15 @@
-\\ main.6502 - the main loop: a frame every other vsync (D6, 25 fps): the keys, then the game's frame; at
-\\ game over, the wipe (D25, a row a frame), GAME OVER, then RETURN (let go, then pressed) starts another.
+\\ main.6502 - the main loop: a frame every Pace vsyncs (D6, 25 fps: 2; D30's slow motion, 6): the keys,
+\\ then the game's frame; at game over, the wipe (D25, a row a frame), GAME OVER, then RETURN (let go, then
+\\ pressed) starts another.
 
 ZA_AUTO1 frame							; the vsync count the last frame started at
 
+FramePace = 2							; vsyncs a frame: 25 fps
+SlowPace = 6							; and in slow motion (D30)
+
 SECTION MainVars
 .Wipe			SKIP 1					; game over: the well's rows still to wipe (background.6502)
+.Pace			SKIP 1					; vsyncs a frame: FramePace, or SlowPace (the game sets it)
 ENDSECTION
 
 \\ The main loop.
@@ -32,12 +37,12 @@ ENDSECTION
 	LDA vsyncs:STA frame
 .loop
 	LDA vsyncs:SEC:SBC frame
-	CMP #2:BCC loop						; two vsyncs a frame
-	CMP #6:BCC ontime					; a late frame's lost time is made up, but no more than a frame's
-	LDA vsyncs:STA frame				; (after a slow patch, no racing to catch up)
+	CMP Pace:BCC loop					; Pace vsyncs a frame
+	SBC Pace:CMP #4:BCC ontime			; (C set) a late frame's lost time is made up, but no more than two
+	LDA vsyncs:STA frame				; vsyncs' (after a slow patch, no racing to catch up)
 	BCS go								; (always)
 .ontime
-	LDA frame:ADC #2:STA frame			; (C clear)
+	LDA frame:ADC Pace:STA frame		; (C clear)
 .go
 	LDA Over:BNE over					; (the IRQ reads the keys)
 	JSR game_frame

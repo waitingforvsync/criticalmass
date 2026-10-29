@@ -1,7 +1,7 @@
 \\ sparks.6502 - the ring of particles a merge throws out (P21), as sparks.py does it, after the original's:
 \\ a spark each way of 8 from the new ball's edge (sparkthrow.6502), slowing by 1/8 a frame, drifting
-\\ down if gravity's on, and gone after 13 to 20 frames or on leaving the well. Each is a pixel two lines tall in the ball's
-\\ colours.
+\\ down if gravity's on, and gone after 13 to 20 frames (the shrinking white ball's, 3: D31) or on leaving
+\\ the well. Each is a pixel two lines tall in the ball's colours.
 \\
 \\ Each frame, after the balls, every spark is EORed off with what it was EORed on with last frame, moved,
 \\ and EORed on with (the byte EOR its colour) AND its pixel's mask, which it keeps. So it shows its own
@@ -16,21 +16,27 @@
 SparkSlots = GenSparkSlots
 
 \\ Each frame, after the balls: every live spark off, moved (a step, 7/8 of its speed kept, rounded toward
-\\ 0, then gravity's quarter down if it's on), and on, the last slot first; gone when its time's up, or past a wall or
-\\ the floor.
+\\ 0, then gravity's quarter down if it's on), and on, the last slot first; gone when its time's up, or past
+\\ a wall or the floor. Only the slots under SparkTop: none higher is live.
 \\
 \\ Inputs:
 \\     the sparks' slots
 \\
 \\ Outputs:
+\\     SparkTop: past the highest still live
 \\     A, X, Y: corrupted
 
 .update_sparks
 {
 	ZA_AUTO2 ptr						; local: its byte column's first byte in the row (Y its even line)
-	ZA_AUTO1 mask						; local: its pixel
-	ASSERT SparkSlots == 16, "a slot EOR SparkSlots is its down index, and back"
-	LDX #SparkSlots - 1
+	ZA_AUTO1 mask, top					; local: its pixel; past the highest still live, as found
+	ASSERT (SparkSlots AND (SparkSlots - 1)) == 0, "a slot EOR SparkSlots is its down index, and back"
+	ASSERT SparkY == SparkX + SparkSlots, "each across table runs on into its down one"
+	ASSERT SparkYF == SparkXF + SparkSlots, "each across table runs on into its down one"
+	ASSERT SparkVY == SparkVX + SparkSlots, "each across table runs on into its down one"
+	LDA #0:STA top
+	LDX SparkTop:BEQ none
+	DEX
 .slot
 	LDA SparkLife,X:BEQ next
 	LDA SparkKept0,X:ORA SparkKept1,X:BEQ off
@@ -54,8 +60,12 @@ ENDIF
 	STA mask
 	LDA (ptr),Y:EOR SparkEven,X:AND mask:STA SparkKept0,X:EOR (ptr),Y:STA (ptr),Y
 	INY:LDA (ptr),Y:EOR SparkOdd,X:AND mask:STA SparkKept1,X:EOR (ptr),Y:STA (ptr),Y
+	LDA top:BNE next					; (the first still live, from the top)
+	INX:STX top:DEX
 .next
 	DEX:BPL slot
+	LDA top:STA SparkTop
+.none
 	RTS
 .gone
 	LDA #0:STA SparkLife,X

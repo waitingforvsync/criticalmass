@@ -3,14 +3,24 @@
 
 DropCooldown = 8						; frames: the original's 20 at 60 Hz
 FailFrames = 50							; the original's 120
-CriticalHold = 6						; frames the critical ball shows before it explodes
+CriticalHold = 12						; frames the player stands still on the critical ball (the physics runs
+										; on), then it bursts (D29): half a second
+FailPause = 50							; frames after a burst with no failing: what it throws mustn't end the game
+SlowAfter = 12							; frames of slow motion from the burst (D30)
+ShedLife = 3							; frames a spark the shrinking white ball sheds lives (D31)
+ShedR = 24								; and the radius its rings are thrown at (r / 2 units a frame, from r out):
+										; the same each frame, so each ring is seen flying out (game.py's)
 HoldWait = 50							; frames the held ball waits at most for the last drop to fall clear
-ChainFrames = 75						; merges this soon after an explosion are a chain
+ChainAge = 25							; a merge's ball made this recently (frames) chains on: its merge is the
+										; chain's next link, scoring double the last (D28)
+BlastLog = 394							; the blast's kick: K / d sixteenths of a unit a frame at d units, as
+										; 32 log2 K (game.py's)
 DropperSpeed = 1966						; 8.8 units a frame: the original's 2 px a frame
 SlowSpeed = 295							; with the slow key: its 0.3 px
 MaxCritical = 4
 KeyLeft = 1:KeyRight = 2:KeySlow = 4:KeyDrop = 8
-StateFree = 0:StateLive = 1:StateDying = 2
+StateFree = 0:StateLive = 1:StateDying = 2:StateShrink = 3	; (shrink: a burst critical ball, drawn
+										; shrinking away, its shape in BallGrow)
 HeldSlot = MaxBalls						; the drawn records past the balls': the held ball, and the next
 NextSlot = MaxBalls + 1
 NextX = GenNextX						; the next ball's centre in the panel, units: under NEXT
@@ -23,8 +33,11 @@ SECTION MainVars
 .HoldLeft		SKIP 1					; frames the held ball may still wait for it
 .Fail			SKIP 1					; frames a ball's been failing
 .Over			SKIP 1					; non-zero: game over
-.ChainLeft		SKIP 1					; frames of a chain left: merges then multiply
-.Chain			SKIP 1					; merges in the chain so far
+.Freeze			SKIP 1					; frames the player still stands still on critical mass
+.Calm			SKIP 1					; frames of no failing left, after a burst
+.Slow			SKIP 1					; frames of slow motion left (D30): main paces them at SlowPace
+.SparkTop		SKIP 1					; past the highest spark slot in use (sparks.6502)
+.NumShrink		SKIP 1					; (ShrinkSlot's)
 .NumCritical	SKIP 1
 .ScoreShown		SKIP 1					; non-zero once the score on the screen is right
 .Dying			SKIP 1					; non-zero once kill_ball has made one dying (draw_balls clears it)
@@ -35,8 +48,8 @@ NewGameZeroes = P% - Score				; (Score to here: new_game zeroes them)
 .HeldGrow		SKIP 1					; the held ball's shape as it grows in (0: hidden)
 .LastDrop		SKIP 1					; the slot last dropped, while it lives (255: none)
 .Released		SKIP 1					; non-zero once the drop key's been let go since a drop
-.CriticalSlot	SKIP MaxCritical		; critical balls showing, and frames left
-.CriticalLeft	SKIP MaxCritical
+.CriticalSlot	SKIP MaxCritical		; critical balls showing: they burst when the freeze is over
+.ShrinkSlot		SKIP MaxCritical		; burst ones shrinking away, in the order they burst (game.py's shrinking)
 .Seed			SKIP 2					; the random LFSR
 .Keys			SKIP 1					; the keys down (the IRQ's)
 .FrameKeys		SKIP 1					; and as this frame took them
@@ -62,11 +75,13 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	STA NumBalls:STA NumMerges
 	LDX #NewGameZeroes - 1
 .zeroes
-	STA Score,X							; the score, cooldown, hold, fail, over, chain, criticals, shown, dying
+	STA Score,X							; the score, cooldown, hold, fail, over, freeze, calm, slow, the
+										; sparks' top, the shrinking, criticals, shown, dying
 	DEX:BPL zeroes
 	LDA #255:STA LastDrop
 	LDA #1:STA Flash					; (the IRQ puts the palette back, in case it was mid-flash)
 	STA Released
+	LDA #FramePace:STA Pace
 	JSR drop_size:STA Held:STA HeldGrow
 	JSR drop_size:STA Next
 	LDA #LO((WellLeft + WellRight) DIV 2 * 256):STA DropperX
@@ -74,8 +89,10 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	RTS
 }
 
-\\ A frame of the game: the keys, the physics, merges, explosions and failing (game.py's keys, step and
-\\ after_step), then the drawing.
+\\ A frame of the game: the keys, the physics, merges and failing (game.py's keys, step and after_step),
+\\ then the drawing. While the player stands still on critical mass, no keys (the physics runs on); then,
+\\ first thing in the frame, the burst. Slow motion's frames are counted here, and its end puts main's pace
+\\ back.
 \\
 \\ Inputs:
 \\     Keys
@@ -85,13 +102,21 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 
 .game_frame
 {
+	LDA Slow:BEQ update
+	DEC Slow:BNE update
+	LDA #FramePace:STA Pace				; slow motion's over
+.update
+	LDA Freeze:BEQ play
+	DEC Freeze:BNE stand
+	JSR do_bursts
+	JMP stand
+.play
 	LDA Keys:STA FrameKeys				; once: the IRQ writes Keys
 	JSR do_keys
+.stand
 	JSR physics_step
 	LDA Cooldown:BEQ @+:DEC Cooldown:.@
-	LDA ChainLeft:BEQ @+:DEC ChainLeft:.@
 	JSR do_merges
-	JSR do_explosions
 	JSR do_fail
 	JMP draw_frame
 }
@@ -249,7 +274,7 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	LDA #0
 	STA BallVXLo,X:STA BallVXHi,X:STA BallVYLo,X:STA BallVYHi,X
 	STA BallIXLo,X:STA BallIXHi,X:STA BallIYLo,X:STA BallIYHi,X
-	STA BallHit,X:STA BallGrow,X
+	STA BallHit,X:STA BallGrow,X:STA BallLink,X
 	LDY NumBalls
 	TXA:STA Order,Y
 	INC NumBalls
@@ -283,40 +308,47 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	RTS
 }
 
-\\ Add to the score, BCD: to its units, or (add_score.add_at) its hundreds.
+\\ Add points to the score, BCD.
 \\
 \\ Inputs:
-\\     A: the points, BCD, 0-99 (add_at: hundreds of them)
-\\     X (add_at): 0 for units, 1 for hundreds
+\\     add_points.points: 3 bytes, BCD, low byte first
 \\
 \\ Outputs:
 \\     Score; ScoreShown cleared; A, X corrupted
 
-.add_score
+.add_points
 {
-	LDX #0
-.add_at
+	ZA_AUTO 3, points
 	SED:CLC
+	LDX #0
 .byte
-	ADC Score,X:STA Score,X
-	INX:TXA:EOR #3:BEQ done				; (INX, TXA and EOR keep the carry)
-	LDA #0:BEQ byte						; (always)
-.done
+	LDA Score,X:ADC points,X:ZA_INDEXEDBY 0..2:STA Score,X
+	INX:TXA:EOR #3:BNE byte				; (INX, TXA and EOR keep the carry)
 	CLD
 	STA ScoreShown						; (A = 0)
 	RTS
 }
 
 \\ The merges the physics found: each pair, if both still live, becomes one of the next size at their
-\\ midpoint, at rest; it scores its size, times the chain if an explosion was this recent.
+\\ midpoint, at rest. It's a chain's next link if either was made by a merge within ChainAge frames (D28):
+\\ a link past the larger of theirs, or the first. It scores its size, doubled for each link past the
+\\ first. Critical mass stands the player still: do_bursts takes it from there.
+\\
+\\ Inputs:
+\\     MergeA, MergeB, NumMerges: the pairs
+\\
+\\ Outputs:
+\\     the balls, the score, the sound; Freeze and CriticalSlot on critical mass; A, X, Y corrupted
 
 .do_merges
 {
-	ZA_AUTO1 k, slota, slotb, c, size, times	; local: the merge; the slots; the new size; the repeats
+	ZA_AUTO1 k, slota, slotb, c, size, link	; local: the merge; the slots; the new ball's; the size; its link
 
 	LDA #0:STA k
 .loop
 	LDX k:CPX NumMerges:BCC more
+	LDA Freeze:CMP #CriticalHold:BNE @+	; critical mass made this frame: its rising tone (after any
+	LDA #SoundRise:STA SoundReq:.@		; merge's sound; Freeze is less on the frames after)
 	RTS
 .more
 	LDA MergeA,X:STA slota
@@ -326,7 +358,14 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	LDA BallAge,X:CMP #MergeAge:BCC loop	; (a slot reused this frame by a merge's ball: age 0)
 	LDX slotb:LDA BallState,X:CMP #StateLive:BNE loop
 	LDA BallAge,X:CMP #MergeAge:BCC loop
-	JSR kill_ball
+
+	\\ the link: one past the larger of theirs, of those made this recently
+
+	LDA #0:STA link
+	JSR young							; (X: b)
+	LDX slota:JSR young
+	INC link
+	LDX slotb:JSR kill_ball
 	LDX slota:JSR kill_ball
 
 	\\ the new ball takes a's slot (none's needed free), drawn from where a was: EOR's deltas come out
@@ -346,69 +385,95 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	STA BallYHi,X:LDA t:STA BallYLo,X
 	LDA #0:STA BallAge,X
 	JSR add_ball
+	LDA link:STA BallLink,X
 	JSR clamp_ball
 	LDA #2:STA BallGrow,X				; drawn a size smaller for two frames
 
-	LDA BallSize,X:STA SoundParam
-	LDA #SoundMerge:STA SoundReq
-	JSR throw_sparks
+	\\ the score: the size, doubled for each link past the first (BCD: no carry out of the top, as the
+	\\ points stay under 11,000)
 
-	\\ the chain, and the score
-
-	LDA ChainLeft:BNE chained
-	STA Chain
-	BEQ scored							; (always)
-.chained
-	INC Chain
-.scored
-	LDX Chain:INX:STX times
 	LDA size:CMP #10:BCC bcd
 	ASSERT CriticalSize <= 19, "a size as BCD: 10 to 19 are + 6"
 	ADC #5								; 10 and up as BCD: + 6 (C set)
 .bcd
-	STA points
-.score
-	LDA points:JSR add_score
-	DEC times:BNE score
-	ZA_AUTO1 points						; local: the size, BCD
+	STA add_points.points
+	LDA #0:STA add_points.points+1:STA add_points.points+2
+	LDY link
+	SED
+.double
+	DEY:BEQ doubled
+	CLC
+	LDA add_points.points:ADC add_points.points:STA add_points.points
+	LDA add_points.points+1:ADC add_points.points+1:STA add_points.points+1
+	LDA add_points.points+2:ADC add_points.points+2:STA add_points.points+2
+	BCC double							; (always)
+.doubled
+	CLD
+	JSR add_points
 
-	\\ critical: shown whole, then it explodes
+	\\ the sound and a ring of sparks; or critical mass, shown whole and white, and the game stands still
+	\\ on it (a rising tone; the burst throws the sparks)
 
 	LDX c
-	LDA BallSize,X:CMP #CriticalSize:BNE notcritical
-	LDA #0:STA BallGrow,X
-	LDY NumCritical:CPY #MaxCritical:BCS notcritical
-	TXA:STA CriticalSlot,Y
-	LDA #CriticalHold + 1:STA CriticalLeft,Y
-	INC NumCritical
-.notcritical
+	LDA BallSize,X:STA SoundParam
+	CMP #CriticalSize:BEQ critical
+	LDA #SoundMerge:STA SoundReq
+	JSR throw_sparks
 	JMP loop
+.critical
+	LDA #0:STA BallGrow,X
+	LDA #CriticalHold:STA Freeze
+	LDY NumCritical:CPY #MaxCritical:BCS full
+	TXA:STA CriticalSlot,Y
+	INC NumCritical
+.full
+	JMP loop
+
+	\\ link = the ball's link, if it's more and the ball was made within ChainAge frames.
+	\\ Inputs: X, its slot; link. Outputs: link; A corrupted
+
+.young
+	LDA BallAge,X:CMP #ChainAge:BCS old
+	LDA BallLink,X:CMP link:BCC old
+	STA link
+.old
+	RTS
 	ZA_AUTO1 t							; local
 }
 
-\\ Critical balls explode once they've shown long enough: into a random pattern's pieces, for a bonus,
-\\ starting a chain.
+\\ The freeze is over: each critical ball bursts (game.py's burst). It goes out of the physics, and is drawn
+\\ shrinking away a shape a frame (draw_balls); every other ball is kicked away from it (blast); its
+\\ pattern's pieces are thrown out, each a chain's first link; two rings of sparks fly; the bonus. Then
+\\ nothing fails for a while.
+\\
+\\ Inputs:
+\\     CriticalSlot, NumCritical: the critical balls
+\\
+\\ Outputs:
+\\     the balls; the score; Flash, the sound, Calm, Slow and Pace; NumCritical 0; A, X, Y corrupted
 
-.do_explosions
+.do_bursts
 {
 	ZA_AUTO1 k, crit, piece				; local: the entry; its ball; the pattern's piece
 
 	LDA #0:STA k
 .loop
 	LDX k:CPX NumCritical:BCC more
+	LDA #0:STA NumCritical
+	LDA #FailPause:STA Calm
+	LDA #SlowAfter:STA Slow				; slow motion (D30), main's pace from this frame
+	LDA #SlowPace:STA Pace
 	RTS
 .more
-	DEC CriticalLeft,X:BEQ explode
-	INC k:JMP loop
-.explode
-	LDA CriticalSlot,X:STA crit
-.remove									; (the entry out of the list: the rest move down)
-	LDA CriticalSlot+1,X:STA CriticalSlot,X
-	LDA CriticalLeft+1,X:STA CriticalLeft,X
-	INX:CPX NumCritical:BCC remove
-	DEC NumCritical
-	LDX crit:LDA BallState,X:CMP #StateLive:BNE loop
+	INC k
+	LDA CriticalSlot,X:STA crit:TAX
+	LDA BallState,X:CMP #StateLive:BNE loop
 	JSR kill_ball
+	LDA #StateShrink:STA BallState,X
+	LDA #CriticalSize:STA BallGrow,X	; (draw_balls takes a shape off before each drawing)
+	TXA:LDY NumShrink:STA ShrinkSlot,Y:INC NumShrink
+	ASSERT CriticalHold > CriticalSize, "a burst's balls are gone before the next: ShrinkSlot's MaxCritical"
+	JSR blast
 
 	JSR rand:AND #7:TAX
 	LDA PatternStart,X:STA piece
@@ -430,6 +495,7 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	LDA wide:ADC BallYHi,Y:STA BallYHi,X
 	LDA #0:STA BallAge,X
 	JSR add_ball
+	LDA #1:STA BallLink,X				; a chain's first link
 	LDY piece
 	LDA PieceVX,Y:JSR eighths:STA BallVXLo,X
 	LDA wide:STA BallVXHi,X
@@ -439,10 +505,13 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	INC piece
 	JMP pieces
 .exploded
-	LDA #1:LDX #1:JSR add_score.add_at	; the bonus: 100
+	LDX crit:JSR throw_sparks			; two rings of sparks, white: from its edge, and from halfway
+	LDX crit:LDA HalfHeights + CriticalSize:LSR A:JSR throw_sparks.ring
+	LDA #0:STA add_points.points:STA add_points.points+2
+	LDA #&10:STA add_points.points+1	; the bonus: 1,000
+	JSR add_points
 	LDA #FlashVsyncs:STA Flash			; (the IRQ flashes every ball white)
 	LDA #SoundExplode:STA SoundReq
-	LDA #ChainFrames + 1:STA ChainLeft	; (counted down before a frame's merges)
 	JMP loop
 	ZA_AUTO1 slot, wide					; local: the piece's slot; a value's high byte
 
@@ -473,6 +542,117 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	STA wide							; >> 3, the sign kept
 	PLA
 	ASL A:ASL A:ASL A:ASL A:ASL A		; << 5
+	RTS
+}
+
+\\ The blast: every ball in play kicked away from a critical ball's centre, K / d sixteenths of a unit a
+\\ frame along the line from it, d in units (game.py's blast). It's worked as pair works its pushes,
+\\ through the logs: K / d * |dx| / d is exp(log K + log |dx| - 2 log d).
+\\
+\\ Inputs:
+\\     X: the critical ball's slot (out of Order)
+\\
+\\ Outputs:
+\\     each ball in play's velocity; A, X, Y corrupted
+
+.blast
+{
+	ZA_AUTO1 crit, k, ax, ay, sx, sy, lx, ly, sign	; local: the centre's slot; the ball's index in
+										; Order; |dx|, |dy| in units; their signs (bit 7 set: plus, or 0);
+										; their logs; the axis' sign
+	ZA_AUTO2 base, kick					; local: log K - 2 log d; an axis' kick, 8.8, signed
+
+	STX crit
+	LDA NumBalls:STA k
+.ball
+	LDY k:BNE more
+	RTS
+.more
+	DEC k
+	LDX Order-1,Y
+	LDY crit
+
+	\\ |dx| and |dy|: the high bytes of the 8.8 differences, the larger less the smaller, and their signs
+
+	LDA BallXLo,X:CMP BallXLo,Y
+	LDA BallXHi,X:SBC BallXHi,Y
+	BCS @+
+	LDA BallXLo,Y:CMP BallXLo,X
+	LDA BallXHi,Y:SBC BallXHi,X:CLC:.@
+	ROR sx:STA ax
+	LDA BallYLo,X:CMP BallYLo,Y
+	LDA BallYHi,X:SBC BallYHi,Y
+	BCS @+
+	LDA BallYLo,Y:CMP BallYLo,X
+	LDA BallYHi,Y:SBC BallYHi,X:CLC:.@
+	ROR sy:STA ay
+
+	\\ log d, from the logs of |dx| and |dy| (a 0 has none): the larger, and H of the difference
+
+	LDY ax:LDA L8,Y:STA lx
+	LDY ay:LDA L8,Y:STA ly
+	LDA #0:STA base+1
+	LDA ax:BNE xsome
+	LDA ay:BEQ ball						; on the centre: no way to kick it
+	LDA ly:JMP gotld
+.xsome
+	LDA ay:BNE both
+	LDA lx:JMP gotld
+.both
+	LDA lx:SEC:SBC ly:BCS xlarger
+	EOR #&FF:ADC #1						; (C clear) ly - lx
+	TAY:LDA ly
+	JMP addh
+.xlarger
+	TAY:LDA lx
+.addh
+	CLC:ADC H,Y
+	BCC gotld:INC base+1
+.gotld
+
+	\\ base = log K - 2 log d
+
+	ASL A:ROL base+1:STA base
+	SEC:LDA #LO(BlastLog):SBC base:STA base
+	LDA #HI(BlastLog):SBC base+1:STA base+1
+
+	\\ each axis kicked
+
+	LDA ax:BEQ notx
+	LDA sx:STA sign
+	LDA lx:JSR axis
+	CLC:LDA BallVXLo,X:ADC kick:STA BallVXLo,X
+	LDA BallVXHi,X:ADC kick+1:STA BallVXHi,X
+.notx
+	LDA ay:BEQ next
+	LDA sy:STA sign
+	LDA ly:JSR axis
+	CLC:LDA BallVYLo,X:ADC kick:STA BallVYLo,X
+	LDA BallVYHi,X:ADC kick+1:STA BallVYHi,X
+.next
+	JMP ball
+
+	\\ An axis' kick: exp(base + its log) sixteenths of a unit, clamped as ExpW is (0 under 0, as 255 past
+	\\ it), as 8.8, signed.
+	\\ Inputs: A, the axis' log; base; sign, bit 7 set to kick the plus way. Outputs: kick; A, Y corrupted;
+	\\ X kept
+
+.axis
+	CLC:ADC base:TAY
+	LDA base+1:ADC #0:BMI none			; under 0: nothing
+	BEQ @+:LDY #255:.@					; past 255: as 255
+	LDA ExpW - GenExpWLo,Y
+	LDY #0:STY kick+1
+	ASL A:ROL kick+1:ASL A:ROL kick+1:ASL A:ROL kick+1:ASL A:ROL kick+1	; sixteenths, as 8.8
+	BIT sign:BMI plus
+	EOR #&FF:CLC:ADC #1:STA kick		; the minus way: negated
+	LDA kick+1:EOR #&FF:ADC #0:STA kick+1
+	RTS
+.plus
+	STA kick
+	RTS
+.none
+	LDA #0:STA kick:STA kick+1
 	RTS
 }
 
@@ -515,9 +695,17 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 }
 
 \\ Failing: a ball poking above the rim while touching another; for FailFrames on end, the game's over.
+\\ Nothing fails while the player stands still on critical mass, nor for FailPause frames after its burst.
 
 .do_fail
 {
+	LDA Freeze:BNE calm					; critical mass this frame
+	LDA Calm:BEQ check					; or just after a burst: nothing fails
+	DEC Calm
+.calm
+	LDA #0:STA Fail
+	RTS
+.check
 	LDY NumBalls:BEQ none
 .loop
 	LDX Order-1,Y
@@ -545,16 +733,17 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	ZA_AUTO1 t							; local
 }
 
-\\ Draw every ball where it should be (game.py's draw): the dying away, each live one at its place once
-\\ it's moved a pixel across or two lines down from where it was drawn, the held ball over the rim and
-\\ the next in the panel.
+\\ Draw every ball where it should be (game.py's draw): the dying away, the burst critical balls a shape
+\\ smaller, each live one at its place once it's moved a pixel across or two lines down from where it was
+\\ drawn, the held ball over the rim and the next in the panel.
 \\
 \\ Inputs:
-\\     the balls, Order, NumBalls; Dying: non-zero if any are dying; Held, Next, DropperX
+\\     the balls, Order, NumBalls; Dying: non-zero if any are dying; ShrinkSlot, NumShrink; Held, Next,
+\\     DropperX
 \\
 \\ Outputs:
-\\     the screen; the drawn records, AnchorX/Y (the centre drawn from, less 1 and 2); Dying cleared;
-\\     the dying slots freed
+\\     the screen; the drawn records, AnchorX/Y (the centre drawn from, less 1 and 2); Dying cleared; the
+\\     dying slots freed, and the shrinking once they're gone (and out of the list); their sparks
 \\     A, X, Y: corrupted
 
 .draw_balls
@@ -563,7 +752,7 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 
 	\\ the dying, away, if kill_ball made any; their slots free
 
-	LDA Dying:BEQ lives
+	LDA Dying:BEQ shrinking
 	LDA #0:STA Dying
 	LDX #MaxBalls - 1
 .dying
@@ -575,6 +764,35 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 	LDA #StateFree:STA BallState,X
 .notdying
 	DEX:BPL dying
+
+	\\ the burst critical balls, in the order they burst (so their sparks take the slots the model's do):
+	\\ each a shape smaller, white, about the centre it was drawn from, with a ring of short-lived sparks
+	\\ (D31); at 0, away, its slot free, and out of the list
+
+.shrinking
+	LDX #0:STX keep
+	LDA NumShrink:BEQ lives
+.shrink
+	STX each
+	LDA ShrinkSlot,X:STA slot:TAX
+	DEC BallGrow,X:LDA BallGrow,X
+	STA shape:BEQ gone
+	LDA #CriticalSize:STA colour
+	LDA AnchorX,X:CLC:ADC #1:STA xu
+	LDA AnchorY,X:CLC:ADC #2:STA yu
+	JSR plot_slot
+	LDX slot
+	LDA #ShedR:LDY #ShedLife:JSR throw_sparks.lived
+	LDA slot:LDX keep:STA ShrinkSlot,X	; (still shrinking: kept)
+	INC keep
+	JMP nextshrink
+.gone
+	JSR plot_slot
+	LDX slot
+	LDA #StateFree:STA BallState,X
+.nextshrink
+	LDX each:INX:CPX NumShrink:BCC shrink
+	LDA keep:STA NumShrink
 
 	\\ the live, in Order. The anchor is kept less 1 across and less 2 down, so each test is one
 	\\ compare: xu - (ax - 1) under 3 is under a pixel across, and yu - (ay - 2) - 1 under 3 is under
@@ -636,7 +854,8 @@ ASSERT Score == Best + 3, "draw_score reads the score and the best as one"
 .done
 	RTS
 
-	ZA_AUTO1 index, colour				; local
+	ZA_AUTO1 index, colour, each, keep	; local: the place in Order; the colour; the shrinking list's place,
+										; and how many are kept
 }
 
 \\ Draw a slot's record anew: from what's drawn to shape and colour (shape 0: nothing) at a centre.

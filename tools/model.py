@@ -115,11 +115,12 @@ _codes = np.array([byte_pixels(v) for v in range(256)], dtype=np.uint8)
 _rgb = np.array(PhysicalRGB, dtype=np.uint8)
 
 
-def frame_rgb(screen, scale=2):
+def frame_rgb(screen, scale=2, palette=None):
+	"""The screen as RGB, through the palette (the game's, or another: the IRQ's pulse and flash)."""
 	mem = np.frombuffer(bytes(screen.mem), dtype=np.uint8).reshape(28, Columns, 8)
 	grid = mem.transpose(0, 2, 1).reshape(Lines, Columns)
 	codes = _codes[grid].reshape(Lines, Columns * 2)
-	pal = np.array(Palette, dtype=np.uint8)
+	pal = np.array(palette or Palette, dtype=np.uint8)
 	rgb = _rgb[pal[codes]]
 	rgb = rgb.repeat(2 * scale, axis=1).repeat(scale, axis=0)
 	return rgb

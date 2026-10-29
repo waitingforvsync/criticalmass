@@ -628,3 +628,167 @@ looked at his prototype (`old/`, BeebAsm) in jsbeeb first.
   game's are; `test_physics.put` and the critical scene poke the two arrays. Seed 3's median 35,834 ->
   35,404, 95% 63,812 -> 63,119. The bytes integrate saved went to apply's page padding (59 bytes now):
   moving apply to avoid it trips other routines' page checks, and there's room enough (914 above &D00).
+
+## 2026-10-29: can critical mass be reached? (P25)
+
+- Rich: "can you do a playthrough to see if it's actually possible to reach critical mass? My feeling is
+  that it probably is not, and we may need to tune it a bit, maybe removing one of the ball sizes".
+- The bound: a critical ball is 2,048 size-1s of mass, and a drop brings 6.2 on average (sizes 1 to 5
+  evenly), so it takes at least 330 drops. The smallest pile before the last cascade (one each of 11 down
+  to 1) fits easily: dropped where each lands lowest, its top settles at line 90, against the rim's 32.
+- `tools/play.py`, a lookahead bot. For each drop it plays every dropper position (every 2 units) on a copy
+  of the game: the move, the drop and 40 frames, exactly as they'll happen. It keeps the best by a
+  heuristic: explosions first, then the pile's height, the number of balls, bigger balls, duplicates that
+  can't merge, touching neighbours a size apart, and small balls buried under big ones. It drops about
+  every 0.8 s. `--noise 3 --blur 0.5` makes it err: an aiming error of 3 units (sigma), and half the
+  spread of the ten best positions' scores as noise in judging them. That isn't calibrated against a
+  person.
+- The review found the first version gave an explosion no credit: the pieces score worse than the 12, so
+  the bot steered away from exploding within its 40 frames. Fixed and every game re-run; the figures here
+  are the re-run's.
+- The one-size-fewer variants were copies of `tools/` with only `shapes.py` changed: **same range** is 11
+  sizes over today's range (steps of 2.84, the biggest playable ball still 30.08); **size 11 removed**
+  keeps sizes 1 to 10 as they are, with critical mass after 10 (36.48, as now).
+- Each game was capped at 15 minutes. Explosions at minutes:
+
+  | sizes | bot | seed 1 | seed 2 | seed 3 |
+  |---|---|---|---|---|
+  | 12 (now) | exact | 4.4, 9.0; over at 13.8 | none; over at 5.6 | 4.9; over at 8.3 |
+  | 12 | erring | none; over at 4.5 | none; over at 4.3 | none; over at 4.6 |
+  | 11, same range | exact | 2.2, 4.6; over at 7.4 | | |
+  | 11, same range | erring | 2.1, 4.4; over at 7.0 | 2.6; over at 4.9 | 2.2; over at 5.3 |
+  | 11, size 11 removed | exact | 6 (2.0 to 13.7); alive at 15 | | |
+  | 11, size 11 removed | erring | 2.5, 5.1; over at 7.9 | 6 (2.7 to 13.6); alive at 15 | 2.3, 4.8; over at 8.0 |
+
+- So critical mass can be reached now, but only with near-perfect play: the exact bot's first came at
+  about drop 333, right at the bound. The erring bot never got there: it reached 11 at about 2.5
+  minutes each time, and lost about 2 minutes later building the second 11.
+- With one size fewer, the erring bot reached it in all six games. Removing size 11 did best: 10
+  explosions in its three games against 4, and longer games (two of about 8 minutes and one past 15). Its
+  biggest playable ball is smaller, so there's more room.
+- Every game ends the same way: the board fills with leftovers, 20 to 30 balls, mostly sizes 1 to 6 with
+  duplicates that never met.
+- The video: `build/model/critical-seed1.mp4` (12 sizes, seed 1, the first bot; the explosion is at 4:27)
+  and `critical-seed1-clip.mp4` (a minute around it). The two 11s span the well, each resting on a
+  smaller ball in a corner.
+
+## 2026-10-29: 11 sizes (D27)
+
+- Rich, on P25: "keep the critical ball radius, and remove the size below. The colour I would like to remove
+  is pure green". `shapes.py`: CriticalSize 11, sizes 1 to 10 in steps of 2.56 as before (checked: the same
+  shapes, RQ, WQ and C as before for sizes 1 to 10, and the critical ball's). `colours.py`: green gone, so 8
+  is magenta, 9 sea green, 10 the pulsing ice, 11 white.
+- The 6502 needed nothing: it takes the critical size from gendata. `make test` passes. MASS's tables are
+  smaller by the shape and the pairs (they start at &2011 now), so there are 1,321 bytes free above &D00.
+- Pink (7) and magenta (8) are neighbours now. Pink's white dither keeps them apart, but swapping orange
+  and pink would keep the hues apart too: Rich's call.
+- `docs/model.md`'s shapes and colours were still the 10-size ones: brought up to date.
+
+## 2026-10-29: chain scoring and the explosion (D28, D29)
+
+- Rich: "increasingly bigger scores for "chain reaction" merges", "a good bonus for reaching critical
+  mass", and the explosion "more spectacular": stand still on the white ball for half a second, then throw
+  the balls out while it shrinks away, with particles. No screen shake; the colours as D27 has them.
+- **Scoring (D28):** each ball has a link (`BallLink`; `Ball.link`). A merge's ball is a link past the
+  larger of its two balls' links (those made within 25 frames), or link 1, and scores its size × 2^(link
+  − 1), doubled in BCD (`add_points` adds three bytes). The pieces are link 1. The bonus is 1,000. The old
+  three-second chain after an explosion is gone. Seed 3's lockstep game, 1,100 frames: 630 points against
+  162; a bot game made a seven-link chain into critical mass that scored 640 on its own.
+- **The explosion (D29):**
+  - On the merge, `Freeze` = 12. `game_frame` does nothing while it counts down (no keys, physics or
+    drawing), then `do_bursts`.
+  - The burst: the critical ball goes to `StateShrink` and `draw_balls` draws it a shape smaller each
+    frame, in white, until it's freed; `blast` kicks every other ball at K/d through L8, H and ExpW; the
+    pieces fly out faster (2.5 + 6 d/R units a frame); two rings of white sparks; the bonus, the flash
+    and the boom. `Calm` = 50: nothing fails meanwhile.
+  - A rising tone (`SoundRise`, channel 2) plays through the stand-still.
+  - The model does the same: `Game.freeze`, `frozen`, `burst`, `blast`, `shrinking`, `calm`. Lockstep
+    compares the links, the freeze and the calm too.
+- Seen in jsbeeb: the white ball, the stand-still with the rising tone, the whole screen flashing white
+  with the boom, the score up 1,000, the white ball shrinking as the pieces punch through it. Where a ball
+  sits under the white one, the EOR shows black through the stand-still: a big hole if it's well under.
+- `tools/play.py --video` is 50 fps now, with the IRQ's pulse and flash in its palette (`irq_palette`),
+  and `--clip`. `build/model/explosion.mp4`: seed 1's first explosion.
+- The review found no mismatch. It led to:
+  - the model capping a burst's pieces by the 6502's slots;
+  - nothing failing on the frame critical mass is made;
+  - the rising tone requested after the frame's merges, so a later merge's sound can't replace it;
+  - headers.
+- Costs: the burst frame of the critical scene is 80,166 cycles; the repeated-explosion scene is 29 of
+  250 frames over 80,000, against 74 (its frozen frames cost nothing). Code room: 871 bytes above &D00.
+- **Then** (Rich: "continuing to simulate physics during the half second pause so it doesn't look quite so
+  unnatural"): only the player stands still now. `game_frame` skips the keys while `Freeze` counts down,
+  and the burst comes first thing in the frame after; the physics, merges and drawing run on. The white
+  ball pushes its neighbours aside in the first few frames, so the black where it overlaps them clears.
+  Nothing fails while it stands. The rising tone is requested only on the frame `Freeze` is set (it's
+  CriticalHold then), as `do_merges` runs during the hold now. The critical scene's slowest frame: 84,021
+  cycles. `tools/play.py --video` is 25 fps by default (a frame each, in the palette at its first vsync):
+  `build/model/explosion-25.mp4`.
+
+## 2026-10-29: slow motion around critical mass (D30)
+
+- Rich: "why does the size of the ball affect the performance of the physics? or are you referring to
+  just the render aspect?" Profiled the critical scene frame by frame: in the 12 frames standing still,
+  the physics took 2,300 to 10,500 cycles and the drawing 56,000 to 67,000. It's the white ball's redraw:
+  its shape isn't in the plotter's fast paths (it used to show for only 6 still frames), so each move
+  redraws all of it.
+- Rich: "slow things down to half-speed update when the white ball is present and exploding". There's
+  one step a frame, so the step is halved: half the gravity, and half the velocity's way. It runs from
+  critical mass through the 12 frames and 24 after the burst (even, so the burst's frame is one where the
+  shrinking and the sparks step); the shrinking and the sparks go every other frame.
+- `integrate`'s y and x sites are branches a whole step never takes (`BEQ` after `LDY BallSize,X`, `BCS`
+  after a `CLC`), each through a stub to the half step's code (`integrate_half`, after `apply`: inside
+  `integrate` it pushed the hot branches out of range and across pages). `set_speed` flips them to `BNE`
+  and `BCC` while `Slow` is non-zero. The first version overwrote `CLC:LDA` with a `JMP`, which Baron
+  couldn't see; Rich: "if you're patching a jump, you'll need ZA_CANJUMP to mark it". Each site now carries
+  one (Baron keeps a branch's fall-through and replaces only its taken edge). A whole step costs 2 cycles
+  a site a ball; `set_speed` about 20 a frame.
+- The review found no bugs. From its suggestions: the half step's y falls straight into its x; SlowAfter
+  is even; `test_physics.py` runs every scene in half steps too (42/42).
+- The critical scene's slowest frame: 78,386 cycles (84,021 before). `build/model/explosion-slow.mp4`:
+  seed 1's first explosion, 25 fps.
+- **Then** Rich: "let's forget the half timestep, and just halve the framerate instead. The stop motion
+  look might work." The half step is gone (`physics.6502` and `test_physics.py` as they were). In slow
+  motion `game_frame` returns at once on every other frame, so the shrinking white ball and the sparks
+  slow with the rest, and a normal frame costs nothing more. The hold is 6 updates (still half a second),
+  then 12 updates of slow motion after the burst. An update has 160,000 cycles then: the critical scene's
+  slowest, 94,812, fits. `build/model/explosion-stop.mp4`, 25 fps.
+- **Then** Rich: "6 frames between updates instead of 2 or 4", and "if it is the irq routine which
+  normally sets the frame pacing, it would be good just to be able to set the value directly that it
+  uses". The IRQ counts vsyncs; `main`'s loop paced a frame every 2. It reads `Pace` now: FramePace (2),
+  or SlowPace (6), which the critical merge sets and the end of `Slow` puts back. So `game_frame` skips
+  nothing, and the model has no still frames: `Game.pace` is only for the videos (`play.py` shows each
+  frame for its pace) and lockstep compares it. The hold is 4 frames (half a second at 6 vsyncs), then 12
+  frames after the burst. `build/model/explosion-stop3.mp4`.
+- The review of the in-between version (every other frame skipped) found `tools/frames.py` calling
+  `after_step` without the freeze's countdown: the game's pre-step part is `Game.before_step` now, which
+  `frames.py` calls too. `frames.py` had been failing since the sparks (D22): the 6502 isn't given them,
+  so the model doesn't draw them there now. Seed 2, 1,500 frames: physics median 21,346, drawing 10,590.
+
+## 2026-10-29: the hold at full speed, slow motion from the burst, shed sparks (D29, D30, D31)
+
+- Rich: "let's not slow down until the explosion. Keep the white ball visible longer at full update
+  speed, and then the explosion/shrink at reduced frame rate. If we can add more particle effects during
+  that time, that'd be great."
+- The hold is 25 frames at full speed (a second); the rising tone is stretched to match (slide -10,
+  decay 4). Slow motion (Pace 6) is set by the burst and lasts 12 frames.
+- The shrinking white ball throws a ring of white sparks from its edge each frame (`throw_sparks.lived`:
+  a ring whose sparks live 3 frames). The spark slots are 32, so the shed rings find room beside the
+  burst's two; the loader's tables now fill their space exactly. `update_sparks` loops from `SparkTop`
+  (past the highest live slot), which `throw_sparks` raises.
+- `build/model/explosion-shed.mp4`, 25 fps.
+- The review found the high-water mark and `.lived` sound, and one real lockstep risk: with two critical
+  balls bursting together, the model shed their rings in burst order and the 6502 in slot order, and a
+  ring in other slots lands elsewhere (a new spark keeps its slot's quarters). The 6502 now keeps the
+  shrinking balls in a list in burst order (`ShrinkSlot`, `NumShrink`), as the model's `shrinking`, and
+  draws and sheds from it; the dying scan is as it was. Lockstep's new `twin` scene (two pairs of size-10
+  balls, both critical on frame 36, two shrinking at once) checks it, in `make test`. Also an assert on
+  the sparks' tables' layout (the EOR trick), and comments.
+- Until the burst's own sparks leave the well, the 32 slots can't hold every shed ring (the last two
+  frames' are live when the next is thrown, beside the burst's 16): an early ring can come out partial.
+- Rich: "the sparks look like they're going inwards, but i would like them to look as if they are
+  exploding outwards". Each shed ring had been thrown from the shrinking ball's edge at r / 2 a frame, so
+  each was smaller and slower than the last. Now they're all thrown alike, ShedR 24 (from 24 units out,
+  12 a frame), just outside the white ball: the newest inside the last, each flying out.
+- Rich: "let's just not hold the white ball so long before exploding, maybe about half a second is
+  enough". CriticalHold 12 (full speed), and the rising tone back to its half second (slide -20, decay 2).

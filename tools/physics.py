@@ -68,6 +68,7 @@ class Ball:
 	drawn: object = None				# what the renderer last drew: (shape, colour, px, line) or None
 	anchor: tuple = (0, 0)				# the position (units) it was drawn from: the hysteresis' centre
 	grow: int = 0						# steps it's still drawn a size smaller: a merge's animation
+	link: int = 0						# its chain's link (D28): a merge's ball 1 or more, a drop's 0
 
 	@property
 	def rq(self):
